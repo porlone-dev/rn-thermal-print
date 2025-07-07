@@ -1,6 +1,6 @@
 {
   "name": "@porlone/rn-thermal-print",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "A React Native Library to support USB/BLE/Net printer",
   "main": "dist/index.js",
   "source": "dist/index.js",
