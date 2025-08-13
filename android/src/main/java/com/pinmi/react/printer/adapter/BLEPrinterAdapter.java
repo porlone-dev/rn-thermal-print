@@ -114,7 +114,7 @@ public class BLEPrinterAdapter implements PrinterAdapter{
         }
         BLEPrinterDeviceId blePrinterDeviceId = (BLEPrinterDeviceId)printerDeviceId;
         if(this.mBluetoothDevice != null){
-            if(this.mBluetoothDevice.getAddress().equals(blePrinterDeviceId.getInnerMacAddress()) && this.mBluetoothSocket != null){
+            if(this.mBluetoothDevice.getAddress().equals(blePrinterDeviceId.getInnerMacAddress()) && this.mBluetoothSocket != null && mBluetoothSocket.isConnected()){
                 Log.v(LOG_TAG, "do not need to reconnect");
                 successCallback.invoke(new BLEPrinterDevice(this.mBluetoothDevice).toRNWritableMap());
                 return;
@@ -128,19 +128,13 @@ public class BLEPrinterAdapter implements PrinterAdapter{
             if(device.getAddress().equals(blePrinterDeviceId.getInnerMacAddress())){
 
                 try{
-                    connectBluetoothDevice(device, false);
+                    connectBluetoothDevice(device);
                     successCallback.invoke(new BLEPrinterDevice(this.mBluetoothDevice).toRNWritableMap());
                     return;
                 } catch (IOException e) {
-                    try {
-                        connectBluetoothDevice(device, true);
-                        successCallback.invoke(new BLEPrinterDevice(this.mBluetoothDevice).toRNWritableMap());
-                        return;
-                    } catch (IOException er) {
-                        er.printStackTrace();
-                        errorCallback.invoke(er.getMessage());
-                        return;
-                    }
+                    e.printStackTrace();
+                    errorCallback.invoke(e.getMessage());
+                    return;
                 }
             }
         }
@@ -150,23 +144,25 @@ public class BLEPrinterAdapter implements PrinterAdapter{
         return;
     }
 
-    private void connectBluetoothDevice(BluetoothDevice device, Boolean retry) throws IOException {
+    private void connectBluetoothDevice(BluetoothDevice device) throws IOException {
         UUID uuid = UUID.fromString("00001101-0000-1000-8000-00805f9b34fb");
-
-        if (retry) {
+        try {
+            this.mBluetoothSocket = device.createInsecureRfcommSocketToServiceRecord(uuid);
+            this.mBluetoothSocket.connect();
+            this.mBluetoothDevice = device;// 最后一步执行
+        } catch (IOException e) {
+            e.printStackTrace();
+            Log.d(LOG_TAG, "fallback creating socket");
             try {
                 this.mBluetoothSocket = (BluetoothSocket) device.getClass()
                         .getMethod("createRfcommSocket", new Class[] { int.class }).invoke(device, 1);
-            } catch (Exception e) {
-                e.printStackTrace();
+                this.mBluetoothSocket.connect();
+                this.mBluetoothDevice = device;
+            } catch (Exception fallbackException) {
+                fallbackException.printStackTrace();
+                throw new IOException(fallbackException.getMessage());
             }
-        } else {
-            this.mBluetoothSocket = device.createInsecureRfcommSocketToServiceRecord(uuid);
-            this.mBluetoothSocket.connect();
         }
-
-        this.mBluetoothDevice = device;// 最后一步执行
-
     }
 
     @Override
