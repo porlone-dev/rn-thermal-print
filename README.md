@@ -4,11 +4,7 @@ This repository is forked from https://github.com/thiendangit/react-native-therm
 
 ## Support
 
-| Printer    | Android            | IOS                |
-| ---------- | ------------------ | ------------------ |
-| USBPrinter | :heavy_check_mark: |                    |
-| BLEPrinter | :heavy_check_mark: | :heavy_check_mark: |
-| NetPrinter | :heavy_check_mark: | :heavy_check_mark: |
+Currently I adjust this package to only support connection via Bluetooth Low Energy.
 
 <br />
 <div style="display: flex; flex-direction: row; align-self: center; align-items: center">
@@ -20,14 +16,12 @@ This repository is forked from https://github.com/thiendangit/react-native-therm
 
 ```
 npm i @porlone/rn-thermal-print
-npm i @porlone/rn-ping
 ```
 
 or
 
 ```
 yarn add @porlone/rn-thermal-print
-yarn add @porlone/rn-ping
 ```
 
 next step
@@ -44,13 +38,9 @@ react-native link @porlone/rn-thermal-print
 
 ```tsx
     init: () => Promise;
-    getDeviceList: () => Promise;
-    /**
-     * `timeout`
-     * @default 4000ms
-     */
-    connectPrinter: (host: string, port: number, timeout?: number | undefined) => Promise;
-    closeConn: () => Promise;
+    getDeviceList: () => Promise<IBLEPrinter>;
+    connectPrinter: (inner_mac_address: string) => Promise<IBLEPrinter>;
+    closeConn: () => Promise<void>;
     /**
      * Print text
      */
@@ -142,31 +132,4 @@ Printer.printImage(
 
 [See more here](https://github.com/porlone-dev/rn-thermal-print/blob/main/example/src/HomeScreen.tsx)
 
-## Troubleshoot
-
-- When installing `react-native` version >= 0.60, XCode shows this error:
-
 ```
-duplicate symbols for architecture x86_64
-```
-
-That's because the .a library uses [CocoaAsyncSocket](https://github.com/robbiehanson/CocoaAsyncSocket) library and Flipper uses it too.
-
-_Podfile_
-
-```diff
-...
-  use_native_modules!
-
-  # Enables Flipper.
-  #
-  # Note that if you have use_frameworks! enabled, Flipper will not work and
-  # you should disable these next few lines.
-  # add_flipper_pods!
-  # post_install do |installer|
-  #   flipper_post_install(installer)
-  # end
-...
-```
-
-and comment out code related to Flipper in `ios/AppDelegate.m`
