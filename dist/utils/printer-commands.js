@@ -23,7 +23,7 @@ export var COMMANDS = {
         /**
          * Print and line feed
          */
-        CTL_LF: '\x0a',
+        CTL_LF: '\x0a', // Print and line feed
         /**
          * Form feed
          */

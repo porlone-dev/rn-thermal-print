@@ -1,4 +1,4 @@
-/// <reference types="node" />
+import { Buffer } from "buffer";
 type IOptions = {
     beep: boolean;
     cut: boolean;
