@@ -5,6 +5,12 @@ def isNewArchitectureEnabled() {
     return project.hasProperty("newArchEnabled") && project.newArchEnabled == "true"
 }
 
+def getJavaVersion() {
+    // Try to get Java version from root project, default to 17 for modern RN (0.73+)
+    def javaVersion = project.findProperty("javaVersion") ?: "17"
+    return javaVersion == "11" ? JavaVersion.VERSION_11 : JavaVersion.VERSION_17
+}
+
 def reactNativeArchitectures() {
     def value = project.getProperties().get("reactNativeArchitectures")
     return value ? value.split(",") : ["armeabi-v7a", "x86", "x86_64", "arm64-v8a"]
@@ -40,12 +46,15 @@ android {
     }
     
     compileOptions {
-        sourceCompatibility JavaVersion.VERSION_11
-        targetCompatibility JavaVersion.VERSION_11
+        // Support both Java 11 (RN < 0.73) and Java 17 (RN >= 0.73)
+        def javaVersion = getJavaVersion()
+        sourceCompatibility javaVersion
+        targetCompatibility javaVersion
     }
     
     kotlinOptions {
-        jvmTarget = "11"
+        // Match JVM target with Java version
+        jvmTarget = getJavaVersion() == JavaVersion.VERSION_11 ? "11" : "17"
     }
     
     packagingOptions {

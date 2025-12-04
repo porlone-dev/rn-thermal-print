@@ -27,9 +27,11 @@ This repository is originally forked from https://github.com/thiendangit/react-n
 
 ## Requirements
 
-- React Native >= 0.70.0 (recommended: 0.74.0)
+- React Native >= 0.70.0 (recommended: 0.74.0+)
 - iOS >= 12.4
 - Android API Level >= 21 (Android 5.0)
+- **Java 17** for RN >= 0.73 / Expo SDK 50+ (auto-configured)
+- **Java 11** for RN < 0.73 (add `javaVersion=11` to `android/gradle.properties`)
 
 ## Installation
 
@@ -48,6 +50,12 @@ cd ios && pod install && cd ..
 ### Android
 
 No additional steps required. Gradle will handle the setup.
+
+**Note:** For React Native < 0.73, add to `android/gradle.properties`:
+```properties
+javaVersion=11
+```
+(RN 0.73+ and Expo SDK 50+ use Java 17 by default)
 
 ### Enabling New Architecture (Optional)
 
