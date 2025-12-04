@@ -19,8 +19,8 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
     });
 };
 var __generator = (this && this.__generator) || function (thisArg, body) {
-    var _ = { label: 0, sent: function() { if (t[0] & 1) throw t[1]; return t[1]; }, trys: [], ops: [] }, f, y, t, g;
-    return g = { next: verb(0), "throw": verb(1), "return": verb(2) }, typeof Symbol === "function" && (g[Symbol.iterator] = function() { return this; }), g;
+    var _ = { label: 0, sent: function() { if (t[0] & 1) throw t[1]; return t[1]; }, trys: [], ops: [] }, f, y, t, g = Object.create((typeof Iterator === "function" ? Iterator : Object).prototype);
+    return g.next = verb(0), g["throw"] = verb(1), g["return"] = verb(2), typeof Symbol === "function" && (g[Symbol.iterator] = function() { return this; }), g;
     function verb(n) { return function (v) { return step([n, v]); }; }
     function step(op) {
         if (f) throw new TypeError("Generator is already executing.");
@@ -45,292 +45,361 @@ var __generator = (this && this.__generator) || function (thisArg, body) {
         if (op[0] & 5) throw op[1]; return { value: op[0] ? op[1] : void 0, done: true };
     }
 };
-import { NativeModules, Platform } from "react-native";
+var __spreadArray = (this && this.__spreadArray) || function (to, from, pack) {
+    if (pack || arguments.length === 2) for (var i = 0, l = from.length, ar; i < l; i++) {
+        if (ar || !(i in from)) {
+            if (!ar) ar = Array.prototype.slice.call(from, 0, i);
+            ar[i] = from[i];
+        }
+    }
+    return to.concat(ar || Array.prototype.slice.call(from));
+};
+import { NativeModules, Platform, TurboModuleRegistry } from "react-native";
 import * as EPToolkit from "./utils/EPToolkit";
 import { processColumnText } from "./utils/print-column";
 import { COMMANDS } from "./utils/printer-commands";
-var RNBLEPrinter = NativeModules.RNBLEPrinter;
-export var PrinterWidth;
-(function (PrinterWidth) {
-    PrinterWidth[PrinterWidth["58mm"] = 58] = "58mm";
-    PrinterWidth[PrinterWidth["80mm"] = 80] = "80mm";
-})(PrinterWidth || (PrinterWidth = {}));
-export var ColumnAlignment;
+import { PrinterError, PrinterErrorCode, wrapError } from "./errors";
+// Automatic architecture detection
+// @ts-ignore - __turboModuleProxy is not in React Native types but exists at runtime
+var isTurboModuleEnabled = global.__turboModuleProxy != null;
+var RNBLEPrinterModule = isTurboModuleEnabled
+    ? TurboModuleRegistry.get('RNBLEPrinter')
+    : NativeModules.RNBLEPrinter;
+if (!RNBLEPrinterModule) {
+    throw new PrinterError('RNBLEPrinter native module is not available. Make sure the library is properly linked.', PrinterErrorCode.NOT_INITIALIZED);
+}
+var RNBLEPrinter = RNBLEPrinterModule;
+var ColumnAlignment;
 (function (ColumnAlignment) {
     ColumnAlignment[ColumnAlignment["LEFT"] = 0] = "LEFT";
     ColumnAlignment[ColumnAlignment["CENTER"] = 1] = "CENTER";
     ColumnAlignment[ColumnAlignment["RIGHT"] = 2] = "RIGHT";
 })(ColumnAlignment || (ColumnAlignment = {}));
-var textTo64Buffer = function (text, opts) {
-    var defaultOptions = {
-        beep: false,
-        cut: false,
-        tailingLine: false,
-        encoding: "UTF8",
-    };
-    var options = __assign(__assign({}, defaultOptions), opts);
+var PrinterWidth;
+(function (PrinterWidth) {
+    PrinterWidth[PrinterWidth["58mm"] = 58] = "58mm";
+    PrinterWidth[PrinterWidth["80mm"] = 80] = "80mm";
+})(PrinterWidth || (PrinterWidth = {}));
+// Helper function for processing text on Android
+var processTextAndroid = function (text, opts) {
+    var _a, _b, _c, _d;
     var fixAndroid = "\n";
-    var buffer = EPToolkit.exchange_text(text + fixAndroid, options);
-    return buffer.toString("base64");
-};
-var billTo64Buffer = function (text, opts) {
-    var defaultOptions = {
-        beep: true,
-        cut: true,
-        encoding: "UTF8",
-        tailingLine: true,
-    };
-    var options = __assign(__assign({}, defaultOptions), opts);
-    var buffer = EPToolkit.exchange_text(text, options);
-    return buffer.toString("base64");
-};
-var textPreprocessingIOS = function (text, canCut, beep) {
-    if (canCut === void 0) { canCut = true; }
-    if (beep === void 0) { beep = true; }
-    var options = {
-        beep: beep,
-        cut: canCut,
-    };
-    return {
-        text: text
-            .replace(/<\/?CB>/g, "")
-            .replace(/<\/?CM>/g, "")
-            .replace(/<\/?CD>/g, "")
-            .replace(/<\/?C>/g, "")
-            .replace(/<\/?D>/g, "")
-            .replace(/<\/?B>/g, "")
-            .replace(/<\/?M>/g, ""),
-        opts: options,
-    };
-};
-var queuePrint = function (fn) {
-    return new Promise(function (resolve) {
-        setTimeout(function () {
-            fn();
-            resolve();
-        }, 100);
+    var buffer = EPToolkit.exchange_text(text + fixAndroid, {
+        beep: (_a = opts.beep) !== null && _a !== void 0 ? _a : false,
+        cut: (_b = opts.cut) !== null && _b !== void 0 ? _b : false,
+        tailingLine: (_c = opts.tailingLine) !== null && _c !== void 0 ? _c : false,
+        encoding: (_d = opts.encoding) !== null && _d !== void 0 ? _d : "UTF8",
     });
+    return buffer.toString("base64");
+};
+// Helper function for processing text on iOS
+var processTextIOS = function (text) {
+    return text
+        .replace(/<\/?CB>/g, "")
+        .replace(/<\/?CM>/g, "")
+        .replace(/<\/?CD>/g, "")
+        .replace(/<\/?C>/g, "")
+        .replace(/<\/?D>/g, "")
+        .replace(/<\/?B>/g, "")
+        .replace(/<\/?M>/g, "");
 };
 var BLEPrinter = {
-    init: function () {
-        return new Promise(function (resolve, reject) {
-            return RNBLEPrinter.init(function () { return resolve(); }, function (error) { return reject(error); });
-        });
-    },
-    getDeviceList: function () {
-        return new Promise(function (resolve, reject) {
-            return RNBLEPrinter.getDeviceList(function (printers) { return resolve(printers); }, function (error) { return reject(error); });
-        });
-    },
-    connectPrinter: function (inner_mac_address) {
-        return new Promise(function (resolve, reject) {
-            return RNBLEPrinter.connectPrinter(inner_mac_address, function (printer) { return resolve(printer); }, function (error) { return reject(error); });
-        });
-    },
-    closeConn: function () {
-        return new Promise(function (resolve) {
-            RNBLEPrinter.closeConn();
-            resolve();
-        });
-    },
-    printText: function (text, opts) {
-        if (opts === void 0) { opts = {}; }
-        return __awaiter(void 0, void 0, void 0, function () {
-            var processedText_1;
-            return __generator(this, function (_a) {
-                switch (_a.label) {
-                    case 0:
-                        if (!(Platform.OS === "ios")) return [3 /*break*/, 2];
-                        processedText_1 = textPreprocessingIOS(text, false, false);
-                        return [4 /*yield*/, queuePrint(function () {
-                                return RNBLEPrinter.printRawData(processedText_1.text, processedText_1.opts, function (error) { return console.warn(error); });
-                            })];
-                    case 1:
-                        _a.sent();
-                        return [3 /*break*/, 4];
-                    case 2: return [4 /*yield*/, queuePrint(function () {
-                            return RNBLEPrinter.printRawData(textTo64Buffer(text, opts), function (error) {
-                                return console.warn(error);
-                            });
-                        })];
-                    case 3:
-                        _a.sent();
-                        _a.label = 4;
-                    case 4: return [2 /*return*/];
-                }
-            });
-        });
-    },
-    printBill: function (text, opts) {
-        if (opts === void 0) { opts = {}; }
-        return __awaiter(void 0, void 0, void 0, function () {
-            var processedText_2;
-            var _a, _b;
-            return __generator(this, function (_c) {
-                switch (_c.label) {
-                    case 0:
-                        if (!(Platform.OS === "ios")) return [3 /*break*/, 2];
-                        processedText_2 = textPreprocessingIOS(text, (_a = opts === null || opts === void 0 ? void 0 : opts.cut) !== null && _a !== void 0 ? _a : true, (_b = opts.beep) !== null && _b !== void 0 ? _b : true);
-                        return [4 /*yield*/, queuePrint(function () {
-                                return RNBLEPrinter.printRawData(processedText_2.text, processedText_2.opts, function (error) { return console.warn(error); });
-                            })];
-                    case 1:
-                        _c.sent();
-                        return [3 /*break*/, 4];
-                    case 2: return [4 /*yield*/, queuePrint(function () {
-                            return RNBLEPrinter.printRawData(billTo64Buffer(text, opts), function (error) {
-                                return console.warn(error);
-                            });
-                        })];
-                    case 3:
-                        _c.sent();
-                        _c.label = 4;
-                    case 4: return [2 /*return*/];
-                }
-            });
-        });
-    },
     /**
-     * image url
-     * @param imgUrl
-     * @param opts
+     * Initialize the BLE printer module
      */
-    printImage: function (imgUrl, opts) {
-        if (opts === void 0) { opts = {}; }
-        return __awaiter(this, void 0, void 0, function () {
-            return __generator(this, function (_a) {
-                switch (_a.label) {
-                    case 0:
-                        if (!(Platform.OS === "ios")) return [3 /*break*/, 2];
-                        /**
-                         * just development
-                         */
-                        return [4 /*yield*/, queuePrint(function () {
-                                return RNBLEPrinter.printImageData(imgUrl, opts, function (error) {
-                                    return console.warn(error);
-                                });
-                            })];
-                    case 1:
-                        /**
-                         * just development
-                         */
-                        _a.sent();
-                        return [3 /*break*/, 4];
-                    case 2: return [4 /*yield*/, queuePrint(function () {
-                            var _a, _b;
-                            return RNBLEPrinter.printImageData(imgUrl, (_a = opts === null || opts === void 0 ? void 0 : opts.imageWidth) !== null && _a !== void 0 ? _a : 0, (_b = opts === null || opts === void 0 ? void 0 : opts.imageHeight) !== null && _b !== void 0 ? _b : 0, function (error) { return console.warn(error); });
-                        })];
-                    case 3:
-                        _a.sent();
-                        _a.label = 4;
-                    case 4: return [2 /*return*/];
-                }
-            });
-        });
-    },
-    /**
-     * base 64 string
-     * @param Base64
-     * @param opts
-     */
-    printImageBase64: function (Base64, opts) {
-        if (opts === void 0) { opts = {}; }
-        return __awaiter(this, void 0, void 0, function () {
-            return __generator(this, function (_a) {
-                switch (_a.label) {
-                    case 0:
-                        if (!(Platform.OS === "ios")) return [3 /*break*/, 2];
-                        /**
-                         * just development
-                         */
-                        return [4 /*yield*/, queuePrint(function () {
-                                return RNBLEPrinter.printImageBase64(Base64, opts, function (error) {
-                                    return console.warn(error);
-                                });
-                            })];
-                    case 1:
-                        /**
-                         * just development
-                         */
-                        _a.sent();
-                        return [3 /*break*/, 4];
-                    case 2: 
-                    /**
-                     * just development
-                     */
-                    return [4 /*yield*/, queuePrint(function () {
-                            var _a, _b;
-                            return RNBLEPrinter.printImageBase64(Base64, (_a = opts === null || opts === void 0 ? void 0 : opts.imageWidth) !== null && _a !== void 0 ? _a : 0, (_b = opts === null || opts === void 0 ? void 0 : opts.imageHeight) !== null && _b !== void 0 ? _b : 0, function (error) { return console.warn(error); });
-                        })];
-                    case 3:
-                        /**
-                         * just development
-                         */
-                        _a.sent();
-                        _a.label = 4;
-                    case 4: return [2 /*return*/];
-                }
-            });
-        });
-    },
-    /**
-     * android print with encoder
-     * @param text
-     */
-    printRaw: function (text) { return __awaiter(void 0, void 0, void 0, function () {
-        var processedText;
+    init: function () { return __awaiter(void 0, void 0, void 0, function () {
+        var error_1;
         return __generator(this, function (_a) {
             switch (_a.label) {
                 case 0:
-                    if (!(Platform.OS === "ios")) return [3 /*break*/, 2];
-                    processedText = textPreprocessingIOS(text, false, false);
-                    return [4 /*yield*/, queuePrint(function () {
-                            return RNBLEPrinter.printRawData(processedText.text, processedText.opts, function (error) { return console.warn(error); });
-                        })];
+                    _a.trys.push([0, 2, , 3]);
+                    return [4 /*yield*/, RNBLEPrinter.init()];
                 case 1:
                     _a.sent();
-                    return [3 /*break*/, 4];
-                case 2: return [4 /*yield*/, queuePrint(function () {
-                        return RNBLEPrinter.printRawData(text, function (error) { return console.warn(error); });
-                    })];
-                case 3:
-                    _a.sent();
-                    _a.label = 4;
-                case 4: return [2 /*return*/];
+                    return [3 /*break*/, 3];
+                case 2:
+                    error_1 = _a.sent();
+                    throw wrapError(error_1, PrinterErrorCode.INIT_ERROR);
+                case 3: return [2 /*return*/];
             }
         });
     }); },
     /**
-     * `columnWidth`
-     * 80mm => 46 character
-     * 58mm => 30 character
+     * Get list of available BLE printers
      */
-    printColumnsText: function (texts, columnWidth, columnAlignment, columnStyle, opts) {
-        if (opts === void 0) { opts = {}; }
-        return __awaiter(void 0, void 0, void 0, function () {
-            var result, processedText_3;
+    getDeviceList: function () { return __awaiter(void 0, void 0, void 0, function () {
+        var devices, error_2;
+        return __generator(this, function (_a) {
+            switch (_a.label) {
+                case 0:
+                    _a.trys.push([0, 2, , 3]);
+                    return [4 /*yield*/, RNBLEPrinter.getDeviceList()];
+                case 1:
+                    devices = _a.sent();
+                    return [2 /*return*/, devices];
+                case 2:
+                    error_2 = _a.sent();
+                    throw wrapError(error_2, PrinterErrorCode.DEVICE_NOT_FOUND);
+                case 3: return [2 /*return*/];
+            }
+        });
+    }); },
+    /**
+     * Connect to a specific printer by MAC address
+     */
+    connectPrinter: function (inner_mac_address) { return __awaiter(void 0, void 0, void 0, function () {
+        var result, error_3;
+        return __generator(this, function (_a) {
+            switch (_a.label) {
+                case 0:
+                    _a.trys.push([0, 2, , 3]);
+                    return [4 /*yield*/, RNBLEPrinter.connectPrinter(inner_mac_address)];
+                case 1:
+                    result = _a.sent();
+                    return [2 /*return*/, result];
+                case 2:
+                    error_3 = _a.sent();
+                    throw wrapError(error_3, PrinterErrorCode.CONNECTION_FAILED);
+                case 3: return [2 /*return*/];
+            }
+        });
+    }); },
+    /**
+     * Close the current printer connection
+     */
+    closeConn: function () { return __awaiter(void 0, void 0, void 0, function () {
+        var error_4;
+        return __generator(this, function (_a) {
+            switch (_a.label) {
+                case 0:
+                    _a.trys.push([0, 2, , 3]);
+                    return [4 /*yield*/, RNBLEPrinter.closeConn()];
+                case 1:
+                    _a.sent();
+                    return [3 /*break*/, 3];
+                case 2:
+                    error_4 = _a.sent();
+                    throw wrapError(error_4, PrinterErrorCode.NOT_CONNECTED);
+                case 3: return [2 /*return*/];
+            }
+        });
+    }); },
+    /**
+     * Print text without cutting or beeping (use for building receipts line by line)
+     */
+    printText: function (text_1) {
+        var args_1 = [];
+        for (var _i = 1; _i < arguments.length; _i++) {
+            args_1[_i - 1] = arguments[_i];
+        }
+        return __awaiter(void 0, __spreadArray([text_1], args_1, true), void 0, function (text, opts) {
+            var processedText, data, error_5;
+            if (opts === void 0) { opts = {}; }
             return __generator(this, function (_a) {
                 switch (_a.label) {
                     case 0:
-                        result = processColumnText(texts, columnWidth, columnAlignment, columnStyle);
+                        _a.trys.push([0, 5, , 6]);
                         if (!(Platform.OS === "ios")) return [3 /*break*/, 2];
-                        processedText_3 = textPreprocessingIOS(result, false, false);
-                        return [4 /*yield*/, queuePrint(function () {
-                                return RNBLEPrinter.printRawData(processedText_3.text, processedText_3.opts, function (error) { return console.warn(error); });
-                            })];
+                        processedText = processTextIOS(text);
+                        return [4 /*yield*/, RNBLEPrinter.printRawData(processedText, __assign(__assign({}, opts), { beep: false, cut: false }))];
                     case 1:
                         _a.sent();
                         return [3 /*break*/, 4];
-                    case 2: return [4 /*yield*/, queuePrint(function () {
-                            return RNBLEPrinter.printRawData(textTo64Buffer(result, opts), function (error) { return console.warn(error); });
-                        })];
+                    case 2:
+                        data = processTextAndroid(text, opts);
+                        return [4 /*yield*/, RNBLEPrinter.printRawData(data, opts)];
                     case 3:
                         _a.sent();
                         _a.label = 4;
-                    case 4: return [2 /*return*/];
+                    case 4: return [3 /*break*/, 6];
+                    case 5:
+                        error_5 = _a.sent();
+                        throw wrapError(error_5, PrinterErrorCode.PRINT_FAILED);
+                    case 6: return [2 /*return*/];
+                }
+            });
+        });
+    },
+    /**
+     * Print text and finish the bill (cuts paper and beeps by default)
+     */
+    printBill: function (text_1) {
+        var args_1 = [];
+        for (var _i = 1; _i < arguments.length; _i++) {
+            args_1[_i - 1] = arguments[_i];
+        }
+        return __awaiter(void 0, __spreadArray([text_1], args_1, true), void 0, function (text, opts) {
+            var finalOpts, processedText, buffer, data, error_6;
+            var _a, _b, _c, _d;
+            if (opts === void 0) { opts = {}; }
+            return __generator(this, function (_e) {
+                switch (_e.label) {
+                    case 0:
+                        _e.trys.push([0, 5, , 6]);
+                        finalOpts = {
+                            beep: (_a = opts.beep) !== null && _a !== void 0 ? _a : true,
+                            cut: (_b = opts.cut) !== null && _b !== void 0 ? _b : true,
+                            tailingLine: (_c = opts.tailingLine) !== null && _c !== void 0 ? _c : true,
+                            encoding: (_d = opts.encoding) !== null && _d !== void 0 ? _d : "UTF8",
+                        };
+                        if (!(Platform.OS === "ios")) return [3 /*break*/, 2];
+                        processedText = processTextIOS(text);
+                        return [4 /*yield*/, RNBLEPrinter.printRawData(processedText, finalOpts)];
+                    case 1:
+                        _e.sent();
+                        return [3 /*break*/, 4];
+                    case 2:
+                        buffer = EPToolkit.exchange_text(text, finalOpts);
+                        data = buffer.toString("base64");
+                        return [4 /*yield*/, RNBLEPrinter.printRawData(data, finalOpts)];
+                    case 3:
+                        _e.sent();
+                        _e.label = 4;
+                    case 4: return [3 /*break*/, 6];
+                    case 5:
+                        error_6 = _e.sent();
+                        throw wrapError(error_6, PrinterErrorCode.PRINT_FAILED);
+                    case 6: return [2 /*return*/];
+                }
+            });
+        });
+    },
+    /**
+     * Print image from URL
+     * @param imgUrl - Image URL to print
+     * @param opts - Printer image options
+     */
+    printImage: function (imgUrl_1) {
+        var args_1 = [];
+        for (var _i = 1; _i < arguments.length; _i++) {
+            args_1[_i - 1] = arguments[_i];
+        }
+        return __awaiter(void 0, __spreadArray([imgUrl_1], args_1, true), void 0, function (imgUrl, opts) {
+            var error_7;
+            if (opts === void 0) { opts = {}; }
+            return __generator(this, function (_a) {
+                switch (_a.label) {
+                    case 0:
+                        _a.trys.push([0, 2, , 3]);
+                        return [4 /*yield*/, RNBLEPrinter.printImageData(imgUrl, opts)];
+                    case 1:
+                        _a.sent();
+                        return [3 /*break*/, 3];
+                    case 2:
+                        error_7 = _a.sent();
+                        throw wrapError(error_7, PrinterErrorCode.PRINT_FAILED);
+                    case 3: return [2 /*return*/];
+                }
+            });
+        });
+    },
+    /**
+     * Print image from base64 string
+     * @param base64 - Base64 encoded image string
+     * @param opts - Printer image options
+     */
+    printImageBase64: function (base64_1) {
+        var args_1 = [];
+        for (var _i = 1; _i < arguments.length; _i++) {
+            args_1[_i - 1] = arguments[_i];
+        }
+        return __awaiter(void 0, __spreadArray([base64_1], args_1, true), void 0, function (base64, opts) {
+            var error_8;
+            if (opts === void 0) { opts = {}; }
+            return __generator(this, function (_a) {
+                switch (_a.label) {
+                    case 0:
+                        _a.trys.push([0, 2, , 3]);
+                        return [4 /*yield*/, RNBLEPrinter.printImageBase64(base64, opts)];
+                    case 1:
+                        _a.sent();
+                        return [3 /*break*/, 3];
+                    case 2:
+                        error_8 = _a.sent();
+                        throw wrapError(error_8, PrinterErrorCode.PRINT_FAILED);
+                    case 3: return [2 /*return*/];
+                }
+            });
+        });
+    },
+    /**
+     * Print raw data (primarily for Android with encoder support)
+     * @param text - Raw text data to print
+     */
+    printRaw: function (text) { return __awaiter(void 0, void 0, void 0, function () {
+        var processedText, error_9;
+        return __generator(this, function (_a) {
+            switch (_a.label) {
+                case 0:
+                    _a.trys.push([0, 5, , 6]);
+                    if (!(Platform.OS === "ios")) return [3 /*break*/, 2];
+                    processedText = processTextIOS(text);
+                    return [4 /*yield*/, RNBLEPrinter.printRawData(processedText, {
+                            beep: false,
+                            cut: false,
+                        })];
+                case 1:
+                    _a.sent();
+                    return [3 /*break*/, 4];
+                case 2: return [4 /*yield*/, RNBLEPrinter.printRawData(text, {})];
+                case 3:
+                    _a.sent();
+                    _a.label = 4;
+                case 4: return [3 /*break*/, 6];
+                case 5:
+                    error_9 = _a.sent();
+                    throw wrapError(error_9, PrinterErrorCode.PRINT_FAILED);
+                case 6: return [2 /*return*/];
+            }
+        });
+    }); },
+    /**
+     * Print text in columns
+     * @param texts - Array of text for each column
+     * @param columnWidth - Array of widths for each column (80mm => 46 chars, 58mm => 30 chars)
+     * @param columnAlignment - Array of alignments for each column
+     * @param columnStyle - Array of styles for each column
+     * @param opts - Printer options
+     */
+    printColumnsText: function (texts_1, columnWidth_1, columnAlignment_1) {
+        var args_1 = [];
+        for (var _i = 3; _i < arguments.length; _i++) {
+            args_1[_i - 3] = arguments[_i];
+        }
+        return __awaiter(void 0, __spreadArray([texts_1, columnWidth_1, columnAlignment_1], args_1, true), void 0, function (texts, columnWidth, columnAlignment, columnStyle, opts) {
+            var result, processedText, data, error_10;
+            if (columnStyle === void 0) { columnStyle = []; }
+            if (opts === void 0) { opts = {}; }
+            return __generator(this, function (_a) {
+                switch (_a.label) {
+                    case 0:
+                        _a.trys.push([0, 5, , 6]);
+                        result = processColumnText(texts, columnWidth, columnAlignment, columnStyle);
+                        if (!(Platform.OS === "ios")) return [3 /*break*/, 2];
+                        processedText = processTextIOS(result);
+                        return [4 /*yield*/, RNBLEPrinter.printRawData(processedText, __assign(__assign({}, opts), { beep: false, cut: false }))];
+                    case 1:
+                        _a.sent();
+                        return [3 /*break*/, 4];
+                    case 2:
+                        data = processTextAndroid(result, opts);
+                        return [4 /*yield*/, RNBLEPrinter.printRawData(data, opts)];
+                    case 3:
+                        _a.sent();
+                        _a.label = 4;
+                    case 4: return [3 /*break*/, 6];
+                    case 5:
+                        error_10 = _a.sent();
+                        throw wrapError(error_10, PrinterErrorCode.PRINT_FAILED);
+                    case 6: return [2 /*return*/];
                 }
             });
         });
     },
 };
+// Export main API
 export { BLEPrinter, COMMANDS };
+// Export enums
+export { ColumnAlignment, PrinterWidth };
+// Export error types
+export { PrinterError, PrinterErrorCode } from './errors';

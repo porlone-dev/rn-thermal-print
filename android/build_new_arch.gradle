@@ -1,0 +1,13 @@
+// Top-level build file for new architecture support
+buildscript {
+    ext {
+        kotlin_version = '1.9.0'
+    }
+    repositories {
+        google()
+        mavenCentral()
+    }
+    dependencies {
+        classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:$kotlin_version"
+    }
+}

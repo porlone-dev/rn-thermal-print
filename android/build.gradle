@@ -1,32 +1,76 @@
 apply plugin: 'com.android.library'
+apply plugin: 'kotlin-android'
+
+def isNewArchitectureEnabled() {
+    return project.hasProperty("newArchEnabled") && project.newArchEnabled == "true"
+}
+
+def reactNativeArchitectures() {
+    def value = project.getProperties().get("reactNativeArchitectures")
+    return value ? value.split(",") : ["armeabi-v7a", "x86", "x86_64", "arm64-v8a"]
+}
 
 android {
-    compileSdkVersion = 32
-    buildToolsVersion = "32.0.0"
+    compileSdkVersion = 34
+    buildToolsVersion = "34.0.0"
+    ndkVersion = "23.1.7779620"
 
     defaultConfig {
-        minSdkVersion 16
-        targetSdkVersion 32
+        minSdkVersion 21
+        targetSdkVersion 34
         versionCode 1
-        versionName "1.0"
+        versionName "2.0.0"
 
         testInstrumentationRunner 'androidx.test.runner.AndroidJUnitRunner'
-
+        
+        buildConfigField "boolean", "IS_NEW_ARCHITECTURE_ENABLED", isNewArchitectureEnabled().toString()
+        buildConfigField "boolean", "REACT_NATIVE_UNSTABLE_USE_RUNTIME_SCHEDULER_ALWAYS", (findProperty("reactNativeArchitectures") ?: "false").toString()
     }
+    
+    buildFeatures {
+        prefab true
+        buildConfig true
+    }
+    
     buildTypes {
         release {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
         }
     }
+    
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_11
+        targetCompatibility JavaVersion.VERSION_11
+    }
+    
+    kotlinOptions {
+        jvmTarget = "11"
+    }
+    
+    packagingOptions {
+        pickFirst 'lib/x86/libc++_shared.so'
+        pickFirst 'lib/x86_64/libc++_shared.so'
+        pickFirst 'lib/armeabi-v7a/libc++_shared.so'
+        pickFirst 'lib/arm64-v8a/libc++_shared.so'
+    }
+}
+
+repositories {
+    mavenCentral()
+    google()
 }
 
 dependencies {
-    api fileTree(dir: 'libs', include: ['*.jar'])
-    androidTestImplementation('androidx.test.espresso:espresso-core:3.1.0', {
-        exclude group: 'com.android.support', module: 'support-annotations'
-    })
-    api 'androidx.appcompat:appcompat:1.0.0'
-    api "com.facebook.react:react-native:+"
-    testImplementation 'junit:junit:4.12'
+    implementation fileTree(dir: 'libs', include: ['*.jar'])
+    implementation "org.jetbrains.kotlin:kotlin-stdlib:$kotlin_version"
+    implementation 'androidx.appcompat:appcompat:1.6.1'
+    implementation "com.facebook.react:react-native:+"
+    
+    testImplementation 'junit:junit:4.13.2'
+    androidTestImplementation 'androidx.test.espresso:espresso-core:3.5.1'
+    
+    if (isNewArchitectureEnabled()) {
+        implementation "com.facebook.react:react-native:+"
+    }
 }

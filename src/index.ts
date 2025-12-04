@@ -1,295 +1,279 @@
-import { NativeModules, Platform } from "react-native";
+import { NativeModules, Platform, TurboModuleRegistry } from "react-native";
 
 import * as EPToolkit from "./utils/EPToolkit";
 import { processColumnText } from "./utils/print-column";
 import { COMMANDS } from "./utils/printer-commands";
+import { PrinterError, PrinterErrorCode, wrapError } from "./errors";
+import type { Spec } from "./NativeThermalPrinter";
 
-const RNBLEPrinter = NativeModules.RNBLEPrinter;
+// Automatic architecture detection
+// @ts-ignore - __turboModuleProxy is not in React Native types but exists at runtime
+const isTurboModuleEnabled = global.__turboModuleProxy != null;
 
-export interface PrinterOptions {
+const RNBLEPrinterModule: Spec | null = isTurboModuleEnabled
+  ? TurboModuleRegistry.get<Spec>('RNBLEPrinter')
+  : NativeModules.RNBLEPrinter;
+
+if (!RNBLEPrinterModule) {
+  throw new PrinterError(
+    'RNBLEPrinter native module is not available. Make sure the library is properly linked.',
+    PrinterErrorCode.NOT_INITIALIZED
+  );
+}
+
+const RNBLEPrinter = RNBLEPrinterModule;
+
+interface PrinterOptions {
   beep?: boolean;
   cut?: boolean;
   tailingLine?: boolean;
   encoding?: string;
 }
 
-export enum PrinterWidth {
-  "58mm" = 58,
-  "80mm" = 80,
-}
-
-export interface PrinterImageOptions {
+interface PrinterImageOptions {
   beep?: boolean;
   cut?: boolean;
   tailingLine?: boolean;
   encoding?: string;
   imageWidth?: number;
   imageHeight?: number;
-  printerWidthType?: PrinterWidth;
-  // only ios
-  paddingX?: number;
+  printerWidthType?: string;
+  paddingX?: number; // only iOS
 }
 
-export interface IBLEPrinter {
+interface IBLEPrinter {
   device_name: string;
   inner_mac_address: string;
 }
 
-export enum ColumnAlignment {
-  LEFT,
-  CENTER,
-  RIGHT,
+enum ColumnAlignment {
+  LEFT = 0,
+  CENTER = 1,
+  RIGHT = 2,
 }
 
-const textTo64Buffer = (text: string, opts: PrinterOptions) => {
-  const defaultOptions = {
-    beep: false,
-    cut: false,
-    tailingLine: false,
-    encoding: "UTF8",
-  };
+enum PrinterWidth {
+  "58mm" = 58,
+  "80mm" = 80,
+}
 
-  const options = {
-    ...defaultOptions,
-    ...opts,
-  };
-
+// Helper function for processing text on Android
+const processTextAndroid = (text: string, opts: PrinterOptions) => {
   const fixAndroid = "\n";
-  const buffer = EPToolkit.exchange_text(text + fixAndroid, options);
-  return buffer.toString("base64");
-};
-
-const billTo64Buffer = (text: string, opts: PrinterOptions) => {
-  const defaultOptions = {
-    beep: true,
-    cut: true,
-    encoding: "UTF8",
-    tailingLine: true,
-  };
-  const options = {
-    ...defaultOptions,
-    ...opts,
-  };
-  const buffer = EPToolkit.exchange_text(text, options);
-  return buffer.toString("base64");
-};
-
-const textPreprocessingIOS = (text: string, canCut = true, beep = true) => {
-  let options = {
-    beep: beep,
-    cut: canCut,
-  };
-  return {
-    text: text
-      .replace(/<\/?CB>/g, "")
-      .replace(/<\/?CM>/g, "")
-      .replace(/<\/?CD>/g, "")
-      .replace(/<\/?C>/g, "")
-      .replace(/<\/?D>/g, "")
-      .replace(/<\/?B>/g, "")
-      .replace(/<\/?M>/g, ""),
-    opts: options,
-  };
-};
-
-const queuePrint = (fn: Function): Promise<void> => {
-  return new Promise((resolve) => {
-    setTimeout(() => {
-      fn();
-      resolve();
-    }, 100);
+  const buffer = EPToolkit.exchange_text(text + fixAndroid, {
+    beep: opts.beep ?? false,
+    cut: opts.cut ?? false,
+    tailingLine: opts.tailingLine ?? false,
+    encoding: opts.encoding ?? "UTF8",
   });
+  return buffer.toString("base64");
+};
+
+// Helper function for processing text on iOS
+const processTextIOS = (text: string) => {
+  return text
+    .replace(/<\/?CB>/g, "")
+    .replace(/<\/?CM>/g, "")
+    .replace(/<\/?CD>/g, "")
+    .replace(/<\/?C>/g, "")
+    .replace(/<\/?D>/g, "")
+    .replace(/<\/?B>/g, "")
+    .replace(/<\/?M>/g, "");
 };
 
 const BLEPrinter = {
-  init: (): Promise<void> =>
-    new Promise((resolve, reject) =>
-      RNBLEPrinter.init(
-        () => resolve(),
-        (error: Error) => reject(error)
-      )
-    ),
+  /**
+   * Initialize the BLE printer module
+   */
+  init: async (): Promise<void> => {
+    try {
+      await RNBLEPrinter.init();
+    } catch (error) {
+      throw wrapError(error, PrinterErrorCode.INIT_ERROR);
+    }
+  },
 
-  getDeviceList: (): Promise<IBLEPrinter[]> =>
-    new Promise((resolve, reject) =>
-      RNBLEPrinter.getDeviceList(
-        (printers: IBLEPrinter[]) => resolve(printers),
-        (error: Error) => reject(error)
-      )
-    ),
+  /**
+   * Get list of available BLE printers
+   */
+  getDeviceList: async (): Promise<IBLEPrinter[]> => {
+    try {
+      const devices = await RNBLEPrinter.getDeviceList();
+      return devices as IBLEPrinter[];
+    } catch (error) {
+      throw wrapError(error, PrinterErrorCode.DEVICE_NOT_FOUND);
+    }
+  },
 
-  connectPrinter: (inner_mac_address: string): Promise<IBLEPrinter> =>
-    new Promise((resolve, reject) =>
-      RNBLEPrinter.connectPrinter(
-        inner_mac_address,
-        (printer: IBLEPrinter) => resolve(printer),
-        (error: Error) => reject(error)
-      )
-    ),
+  /**
+   * Connect to a specific printer by MAC address
+   */
+  connectPrinter: async (inner_mac_address: string): Promise<string> => {
+    try {
+      const result = await RNBLEPrinter.connectPrinter(inner_mac_address);
+      return result;
+    } catch (error) {
+      throw wrapError(error, PrinterErrorCode.CONNECTION_FAILED);
+    }
+  },
 
-  closeConn: (): Promise<void> =>
-    new Promise((resolve) => {
-      RNBLEPrinter.closeConn();
-      resolve();
-    }),
+  /**
+   * Close the current printer connection
+   */
+  closeConn: async (): Promise<void> => {
+    try {
+      await RNBLEPrinter.closeConn();
+    } catch (error) {
+      throw wrapError(error, PrinterErrorCode.NOT_CONNECTED);
+    }
+  },
 
+  /**
+   * Print text without cutting or beeping (use for building receipts line by line)
+   */
   printText: async (text: string, opts: PrinterOptions = {}): Promise<void> => {
-    if (Platform.OS === "ios") {
-      const processedText = textPreprocessingIOS(text, false, false);
-
-      await queuePrint(() =>
-        RNBLEPrinter.printRawData(
-          processedText.text,
-          processedText.opts,
-          (error: Error) => console.warn(error)
-        )
-      );
-    } else {
-      await queuePrint(() =>
-        RNBLEPrinter.printRawData(textTo64Buffer(text, opts), (error: Error) =>
-          console.warn(error)
-        )
-      );
+    try {
+      if (Platform.OS === "ios") {
+        const processedText = processTextIOS(text);
+        await RNBLEPrinter.printRawData(processedText, {
+          ...opts,
+          beep: false,
+          cut: false,
+        });
+      } else {
+        const data = processTextAndroid(text, opts);
+        await RNBLEPrinter.printRawData(data, opts);
+      }
+    } catch (error) {
+      throw wrapError(error, PrinterErrorCode.PRINT_FAILED);
     }
   },
 
+  /**
+   * Print text and finish the bill (cuts paper and beeps by default)
+   */
   printBill: async (text: string, opts: PrinterOptions = {}): Promise<void> => {
-    if (Platform.OS === "ios") {
-      const processedText = textPreprocessingIOS(
-        text,
-        opts?.cut ?? true,
-        opts.beep ?? true
-      );
-      await queuePrint(() =>
-        RNBLEPrinter.printRawData(
-          processedText.text,
-          processedText.opts,
-          (error: Error) => console.warn(error)
-        )
-      );
-    } else {
-      await queuePrint(() =>
-        RNBLEPrinter.printRawData(billTo64Buffer(text, opts), (error: Error) =>
-          console.warn(error)
-        )
-      );
+    try {
+      const finalOpts = {
+        beep: opts.beep ?? true,
+        cut: opts.cut ?? true,
+        tailingLine: opts.tailingLine ?? true,
+        encoding: opts.encoding ?? "UTF8",
+      };
+
+      if (Platform.OS === "ios") {
+        const processedText = processTextIOS(text);
+        await RNBLEPrinter.printRawData(processedText, finalOpts);
+      } else {
+        const buffer = EPToolkit.exchange_text(text, finalOpts);
+        const data = buffer.toString("base64");
+        await RNBLEPrinter.printRawData(data, finalOpts);
+      }
+    } catch (error) {
+      throw wrapError(error, PrinterErrorCode.PRINT_FAILED);
     }
   },
   /**
-   * image url
-   * @param imgUrl
-   * @param opts
+   * Print image from URL
+   * @param imgUrl - Image URL to print
+   * @param opts - Printer image options
    */
-  printImage: async function (imgUrl: string, opts: PrinterImageOptions = {}) {
-    if (Platform.OS === "ios") {
-      /**
-       * just development
-       */
-      await queuePrint(() =>
-        RNBLEPrinter.printImageData(imgUrl, opts, (error: Error) =>
-          console.warn(error)
-        )
-      );
-    } else {
-      await queuePrint(() =>
-        RNBLEPrinter.printImageData(
-          imgUrl,
-          opts?.imageWidth ?? 0,
-          opts?.imageHeight ?? 0,
-          (error: Error) => console.warn(error)
-        )
-      );
+  printImage: async (imgUrl: string, opts: PrinterImageOptions = {}): Promise<void> => {
+    try {
+      await RNBLEPrinter.printImageData(imgUrl, opts);
+    } catch (error) {
+      throw wrapError(error, PrinterErrorCode.PRINT_FAILED);
     }
   },
   /**
-   * base 64 string
-   * @param Base64
-   * @param opts
+   * Print image from base64 string
+   * @param base64 - Base64 encoded image string
+   * @param opts - Printer image options
    */
-  printImageBase64: async function (
-    Base64: string,
+  printImageBase64: async (
+    base64: string,
     opts: PrinterImageOptions = {}
-  ) {
-    if (Platform.OS === "ios") {
-      /**
-       * just development
-       */
-      await queuePrint(() =>
-        RNBLEPrinter.printImageBase64(Base64, opts, (error: Error) =>
-          console.warn(error)
-        )
-      );
-    } else {
-      /**
-       * just development
-       */
-      await queuePrint(() =>
-        RNBLEPrinter.printImageBase64(
-          Base64,
-          opts?.imageWidth ?? 0,
-          opts?.imageHeight ?? 0,
-          (error: Error) => console.warn(error)
-        )
-      );
+  ): Promise<void> => {
+    try {
+      await RNBLEPrinter.printImageBase64(base64, opts);
+    } catch (error) {
+      throw wrapError(error, PrinterErrorCode.PRINT_FAILED);
     }
   },
   /**
-   * android print with encoder
-   * @param text
+   * Print raw data (primarily for Android with encoder support)
+   * @param text - Raw text data to print
    */
   printRaw: async (text: string): Promise<void> => {
-    if (Platform.OS === "ios") {
-      var processedText = textPreprocessingIOS(text, false, false);
-
-      await queuePrint(() =>
-        RNBLEPrinter.printRawData(
-          processedText.text,
-          processedText.opts,
-          (error: Error) => console.warn(error)
-        )
-      );
-    } else {
-      await queuePrint(() =>
-        RNBLEPrinter.printRawData(text, (error: Error) => console.warn(error))
-      );
+    try {
+      if (Platform.OS === "ios") {
+        const processedText = processTextIOS(text);
+        await RNBLEPrinter.printRawData(processedText, {
+          beep: false,
+          cut: false,
+        });
+      } else {
+        await RNBLEPrinter.printRawData(text, {});
+      }
+    } catch (error) {
+      throw wrapError(error, PrinterErrorCode.PRINT_FAILED);
     }
   },
   /**
-   * `columnWidth`
-   * 80mm => 46 character
-   * 58mm => 30 character
+   * Print text in columns
+   * @param texts - Array of text for each column
+   * @param columnWidth - Array of widths for each column (80mm => 46 chars, 58mm => 30 chars)
+   * @param columnAlignment - Array of alignments for each column
+   * @param columnStyle - Array of styles for each column
+   * @param opts - Printer options
    */
   printColumnsText: async (
     texts: string[],
     columnWidth: number[],
     columnAlignment: ColumnAlignment[],
-    columnStyle: string[],
+    columnStyle: string[] = [],
     opts: PrinterOptions = {}
   ): Promise<void> => {
-    const result = processColumnText(
-      texts,
-      columnWidth,
-      columnAlignment,
-      columnStyle
-    );
-    if (Platform.OS === "ios") {
-      const processedText = textPreprocessingIOS(result, false, false);
-      await queuePrint(() =>
-        RNBLEPrinter.printRawData(
-          processedText.text,
-          processedText.opts,
-          (error: Error) => console.warn(error)
-        )
+    try {
+      const result = processColumnText(
+        texts,
+        columnWidth,
+        columnAlignment,
+        columnStyle
       );
-    } else {
-      await queuePrint(() =>
-        RNBLEPrinter.printRawData(
-          textTo64Buffer(result, opts),
-          (error: Error) => console.warn(error)
-        )
-      );
+      
+      if (Platform.OS === "ios") {
+        const processedText = processTextIOS(result);
+        await RNBLEPrinter.printRawData(processedText, {
+          ...opts,
+          beep: false,
+          cut: false,
+        });
+      } else {
+        const data = processTextAndroid(result, opts);
+        await RNBLEPrinter.printRawData(data, opts);
+      }
+    } catch (error) {
+      throw wrapError(error, PrinterErrorCode.PRINT_FAILED);
     }
   },
 };
 
+// Export main API
 export { BLEPrinter, COMMANDS };
+
+// Export types
+export type { 
+  PrinterOptions, 
+  PrinterImageOptions, 
+  IBLEPrinter
+};
+
+// Export enums
+export { ColumnAlignment, PrinterWidth };
+
+// Export error types
+export { PrinterError, PrinterErrorCode } from './errors';
+
+// Export TurboModule spec type
+export type { Spec as NativeThermalPrinterSpec } from './NativeThermalPrinter';
