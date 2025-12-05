@@ -28,9 +28,6 @@ android {
         versionName "2.0.0"
 
         testInstrumentationRunner 'androidx.test.runner.AndroidJUnitRunner'
-        
-        buildConfigField "boolean", "IS_NEW_ARCHITECTURE_ENABLED", isNewArchitectureEnabled().toString()
-        buildConfigField "boolean", "REACT_NATIVE_UNSTABLE_USE_RUNTIME_SCHEDULER_ALWAYS", (findProperty("reactNativeArchitectures") ?: "false").toString()
     }
     
     buildFeatures {
@@ -78,8 +75,4 @@ dependencies {
     
     testImplementation 'junit:junit:4.13.2'
     androidTestImplementation 'androidx.test.espresso:espresso-core:3.5.1'
-    
-    if (isNewArchitectureEnabled()) {
-        implementation "com.facebook.react:react-native:+"
-    }
 }

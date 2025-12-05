@@ -1,37 +1,25 @@
 # @porlone/rn-thermal-print
 
-A React Native library for thermal receipt printers with **React Native New Architecture** support.
+A React Native library for BLE thermal receipt printers. Works out of the box - no additional packages required.
 
 [![npm version](https://img.shields.io/npm/v/@porlone/rn-thermal-print.svg)](https://www.npmjs.com/package/@porlone/rn-thermal-print)
 [![License](https://img.shields.io/npm/l/@porlone/rn-thermal-print.svg)](https://github.com/porlone-dev/rn-thermal-print/blob/master/LICENSE)
 
 ## ✨ Features
 
-- 🚀 **React Native New Architecture** support (TurboModules)
-- 🔄 **Backward compatible** with old architecture
+- 🔋 **Works out of the box** - Built-in permission handling, no additional packages needed
 - 📱 **Cross-platform**: iOS & Android
 - 🔵 **Bluetooth Low Energy** printer support
-- 🖼️ **Image printing** (URL & Base64)
-- 📝 **Text formatting** with alignment, bold, and sizing
-- 📊 **Column-based printing** for receipts
+- 🖼️ **Image printing** - Auto-detects URL or Base64
+- 📊 **Smart table printing** - Auto column widths with frozen column support
 - ⚡ **Promise-based API** with proper error handling
-- 📘 **Full TypeScript** support
-
-This repository is originally forked from https://github.com/thiendangit/react-native-thermal-receipt-printer-image-qr with major improvements for the new architecture.
-
-<br />
-<div style="display: flex; flex-direction: row; align-self: center; align-items: center">
-<img src="image/invoice.jpg" alt="bill" width="270" height="580"/>
-<img src="image/_screenshot.jpg" alt="screenshot" width="270" height="580"/>
-</div>
+- 📘 **Full TypeScript** support with autocomplete
 
 ## Requirements
 
-- React Native >= 0.70.0 (recommended: 0.74.0+)
+- React Native >= 0.70.0
 - iOS >= 12.4
 - Android API Level >= 21 (Android 5.0)
-- **Java 17** for RN >= 0.73 / Expo SDK 50+ (auto-configured)
-- **Java 11** for RN < 0.73 (add `javaVersion=11` to `android/gradle.properties`)
 
 ## Installation
 
@@ -49,148 +37,160 @@ cd ios && pod install && cd ..
 
 ### Android
 
-No additional steps required. Gradle will handle the setup.
-
-**Note:** For React Native < 0.73, add to `android/gradle.properties`:
-```properties
-javaVersion=11
-```
-(RN 0.73+ and Expo SDK 50+ use Java 17 by default)
-
-### Enabling New Architecture (Optional)
-
-To take advantage of the new architecture (TurboModules):
-
-#### iOS
-In your `ios/Podfile`:
-```ruby
-ENV['RCT_NEW_ARCH_ENABLED'] = '1'
-```
-
-#### Android
-In your `android/gradle.properties`:
-```properties
-newArchEnabled=true
-```
-
-**Note:** The library automatically detects which architecture is enabled and uses the appropriate implementation!
+No additional steps required.
 
 ## Quick Start
 
 ```typescript
-import { BLEPrinter, COMMANDS, PrinterError, PrinterErrorCode } from '@porlone/rn-thermal-print';
+import {
+  BLEPrinter,
+  ColumnAlign,
+  requestPermissions,
+} from "@porlone/rn-thermal-print";
 
-// Initialize the printer
-const initPrinter = async () => {
-  try {
-    await BLEPrinter.init();
-    const devices = await BLEPrinter.getDeviceList();
-    console.log('Available printers:', devices);
-  } catch (error) {
-    if (error instanceof PrinterError) {
-      console.error('Printer error:', error.code, error.message);
-    }
-  }
-};
+// 1. Request permissions (Android)
+const hasPermission = await requestPermissions();
+if (!hasPermission) {
+  console.log("Bluetooth permissions not granted");
+  return;
+}
 
-// Connect and print
-const printReceipt = async (deviceAddress: string) => {
-  try {
-    await BLEPrinter.connectPrinter(deviceAddress);
-    
-    await BLEPrinter.printText('<C>My Store</C>\n');
-    await BLEPrinter.printText('<B>Receipt #12345</B>\n');
-    await BLEPrinter.printText('------------------------\n');
-    await BLEPrinter.printBill('<C>Thank you!</C>');
-    
-    await BLEPrinter.closeConn();
-  } catch (error) {
-    if (error instanceof PrinterError) {
-      switch (error.code) {
-        case PrinterErrorCode.NOT_CONNECTED:
-          console.error('Printer not connected');
-          break;
-        case PrinterErrorCode.PRINT_FAILED:
-          console.error('Failed to print');
-          break;
-      }
-    }
-  }
-};
+// 2. Initialize and get devices
+await BLEPrinter.init();
+const devices = await BLEPrinter.getDeviceList();
+console.log("Available printers:", devices);
+
+// 3. Connect to printer
+await BLEPrinter.connect(devices[0].inner_mac_address);
+
+// 4. Print!
+await BLEPrinter.printText("Hello World!\n");
+await BLEPrinter.printText("================\n", { cut: true });
+
+// 5. Disconnect when done
+await BLEPrinter.disconnect();
 ```
+
+## v2.0.0 Breaking Changes
+
+### Removed Functions
+
+- `printColumnsText()` - Use `printTable()` instead
+- `printBill()` - Use `printText()` with `{ cut: true, beep: true }`
+- `printReceipt()` - Use `printTable()` instead
+- `printImageBase64()` - Use `printImage()` (auto-detects base64)
+
+### Renamed Methods
+
+- `connectPrinter()` → `connect()`
+- `closeConn()` → `disconnect()`
+
+### New Features
+
+- Built-in `requestPermissions()` - No need for `react-native-ble-plx` or `expo-location`
+- `printImage()` now auto-detects URL vs base64
+- `printTable()` with smart column widths and frozen columns
 
 ## API Reference
 
-### BLEPrinter
-
-All methods return **Promises** and throw **PrinterError** on failure.
+### Permission Functions
 
 ```typescript
-interface BLEPrinter {
-  /**
-   * Initialize the BLE printer module
-   */
-  init(): Promise<void>;
-  
-  /**
-   * Get list of available BLE printers
-   */
-  getDeviceList(): Promise<IBLEPrinter[]>;
-  
-  /**
-   * Connect to a specific printer by MAC address
-   */
-  connectPrinter(inner_mac_address: string): Promise<string>;
-  
-  /**
-   * Close the current printer connection
-   */
-  closeConn(): Promise<void>;
-  
-  /**
-   * Print text without cutting or beeping (for building receipts line by line)
-   */
-  printText(text: string, opts?: PrinterOptions): Promise<void>;
-  
-  /**
-   * Print text and finish the bill (cuts paper and beeps by default)
-   */
-  printBill(text: string, opts?: PrinterOptions): Promise<void>;
-  
-  /**
-   * Print image from URL
-   */
-  printImage(imgUrl: string, opts?: PrinterImageOptions): Promise<void>;
-  
-  /**
-   * Print image from base64 string
-   */
-  printImageBase64(base64: string, opts?: PrinterImageOptions): Promise<void>;
-  
-  /**
-   * Print raw data (primarily for Android with encoder support)
-   */
-  printRaw(text: string): Promise<void>;
-  
-  /**
-   * Print text in columns
-   * 80mm => 46 characters
-   * 58mm => 30 characters
-   */
-  printColumnsText(
-    texts: string[],
-    columnWidth: number[],
-    columnAlignment: ColumnAlignment[],
-    columnStyle?: string[],
-    opts?: PrinterOptions
-  ): Promise<void>;
-}
+// Request BLE permissions (Android only, iOS returns true)
+const granted = await requestPermissions();
+
+// Check if permissions are granted
+const hasPermission = await checkPermissions();
+
+// Also available on BLEPrinter object
+await BLEPrinter.requestPermissions();
+await BLEPrinter.checkPermissions();
 ```
 
-### Types
+### BLEPrinter
 
 ```typescript
-interface IBLEPrinter {
+// Initialize the printer module
+await BLEPrinter.init();
+
+// Get available printers
+const devices = await BLEPrinter.getDeviceList();
+// Returns: BLEDevice[] = [{ device_name: string, inner_mac_address: string }]
+
+// Connect to printer
+await BLEPrinter.connect(macAddress);
+
+// Disconnect
+await BLEPrinter.disconnect();
+
+// Print text
+await BLEPrinter.printText("Hello\n");
+await BLEPrinter.printText("Goodbye\n", { cut: true, beep: true });
+
+// Print image (URL or base64 - auto-detected)
+await BLEPrinter.printImage("https://example.com/logo.png");
+await BLEPrinter.printImage("data:image/png;base64,iVBORw0...");
+await BLEPrinter.printImage("iVBORw0KGgoAAAANSU..."); // raw base64
+
+// Print raw ESC/POS data
+await BLEPrinter.printRaw(rawData);
+```
+
+### Smart Table Printing
+
+`printTable()` automatically calculates column widths. Use `frozen: true` for columns that should never wrap (like prices).
+
+```typescript
+import { BLEPrinter, ColumnAlign } from "@porlone/rn-thermal-print";
+
+await BLEPrinter.printTable(
+  [
+    { item: "Chicken Rice Bowl", qty: "2", price: "25.00" },
+    { item: "Iced Lemon Tea Large Size", qty: "1", price: "8.50" },
+    { item: "Mineral Water", qty: "3", price: "5.00" },
+  ],
+  [
+    { key: "item" }, // Flexible column - wraps if needed
+    { key: "qty", frozen: true, align: ColumnAlign.CENTER },
+    { key: "price", frozen: true, align: ColumnAlign.RIGHT },
+  ],
+  { printerWidth: "80mm", showHeader: true }
+);
+```
+
+**Output:**
+
+```
+item                          qty   price
+Chicken Rice Bowl              2    25.00
+Iced Lemon Tea Large Size      1     8.50
+Mineral Water                  3     5.00
+```
+
+### TableColumn Options
+
+| Option     | Type        | Description                               |
+| ---------- | ----------- | ----------------------------------------- |
+| `key`      | string      | Key in data object (autocomplete enabled) |
+| `header`   | string      | Header text (defaults to key)             |
+| `frozen`   | boolean     | If true, column won't wrap                |
+| `align`    | ColumnAlign | LEFT, CENTER, or RIGHT                    |
+| `minWidth` | number      | Minimum column width                      |
+| `maxWidth` | number      | Maximum column width                      |
+
+### PrintTableOptions
+
+| Option         | Type             | Default | Description       |
+| -------------- | ---------------- | ------- | ----------------- |
+| `printerWidth` | '58mm' \| '80mm' | '80mm'  | Paper width       |
+| `showHeader`   | boolean          | false   | Show header row   |
+| `headerLine`   | boolean          | false   | Line after header |
+| `separator`    | string           | ' '     | Column separator  |
+
+## Types
+
+```typescript
+interface BLEDevice {
   device_name: string;
   inner_mac_address: string;
 }
@@ -202,106 +202,117 @@ interface PrinterOptions {
   encoding?: string;
 }
 
-interface PrinterImageOptions extends PrinterOptions {
+interface PrinterImageOptions {
   imageWidth?: number;
   imageHeight?: number;
-  printerWidthType?: '58' | '80';
-  paddingX?: number;  // iOS only
+  printerWidthType?: "58" | "80";
+  paddingX?: number; // iOS only
 }
 
-enum ColumnAlignment {
+enum ColumnAlign {
   LEFT = 0,
   CENTER = 1,
   RIGHT = 2,
 }
 
 enum PrinterWidth {
-  "58mm" = 58,
-  "80mm" = 80,
+  WIDTH_58MM = 58,
+  WIDTH_80MM = 80,
 }
 ```
 
-### Error Handling
+## Error Handling
 
 ```typescript
-enum PrinterErrorCode {
-  NOT_INITIALIZED = 'NOT_INITIALIZED',
-  NOT_CONNECTED = 'NOT_CONNECTED',
-  PRINT_FAILED = 'PRINT_FAILED',
-  CONNECTION_FAILED = 'CONNECTION_FAILED',
-  DEVICE_NOT_FOUND = 'DEVICE_NOT_FOUND',
-  BLUETOOTH_UNAVAILABLE = 'BLUETOOTH_UNAVAILABLE',
-  INIT_ERROR = 'INIT_ERROR',
-  UNKNOWN_ERROR = 'UNKNOWN_ERROR',
-}
+import { PrinterError, PrinterErrorCode } from "@porlone/rn-thermal-print";
 
-class PrinterError extends Error {
-  code: PrinterErrorCode;
-  originalError?: Error;
-}
-```
-
-## Styling
-
-```js
-import { COMMANDS, ColumnAlignment } from "@porlone/rn-thermal-print";
-```
-
-[See more here](https://github.com/porlone-dev/rn-thermal-print/blob/main/dist/utils/printer-commands.js)
-
-## Example
-
-**`Print Columns Text`**
-
-```tsx
-const BOLD_ON = COMMANDS.TEXT_FORMAT.TXT_BOLD_ON;
-const BOLD_OFF = COMMANDS.TEXT_FORMAT.TXT_BOLD_OFF;
-let orderList = [
-  ["1. Skirt Palas Labuh Muslimah Fashion", "x2", "500$"],
-  ["2. BLOUSE ROPOL VIRAL MUSLIMAH FASHION", "x4222", "500$"],
-  [
-    "3. Women Crew Neck Button Down Ruffle Collar Loose Blouse",
-    "x1",
-    "30000000000000$",
-  ],
-  ["4. Retro Buttons Up Full Sleeve Loose", "x10", "200$"],
-  ["5. Retro Buttons Up", "x10", "200$"],
-];
-let columnAlignment = [
-  ColumnAlignment.LEFT,
-  ColumnAlignment.CENTER,
-  ColumnAlignment.RIGHT,
-];
-let columnWidth = [46 - (7 + 12), 7, 12];
-const header = ["Product list", "Qty", "Price"];
-Printer.printColumnsText(header, columnWidth, columnAlignment, [
-  `${BOLD_ON}`,
-  "",
-  "",
-]);
-for (let i in orderList) {
-  Printer.printColumnsText(orderList[i], columnWidth, columnAlignment, [
-    `${BOLD_OFF}`,
-    "",
-    "",
-  ]);
-}
-Printer.printBill(`${CENTER}Thank you\n`);
-```
-
-**`Print image`**
-
-```tsx
-Printer.printImage(
-  "https://media-cdn.tripadvisor.com/media/photo-m/1280/1b/3a/bd/b5/the-food-bill.jpg",
-  {
-    imageWidth: 575,
-    // imageHeight: 1000,
-    // paddingX: 100
+try {
+  await BLEPrinter.connect(address);
+} catch (error) {
+  if (error instanceof PrinterError) {
+    switch (error.code) {
+      case PrinterErrorCode.CONNECTION_FAILED:
+        console.log("Failed to connect to printer");
+        break;
+      case PrinterErrorCode.NOT_CONNECTED:
+        console.log("Printer not connected");
+        break;
+      case PrinterErrorCode.PRINT_FAILED:
+        console.log("Print failed");
+        break;
+    }
   }
+}
+```
+
+### Error Codes
+
+| Code                    | Description             |
+| ----------------------- | ----------------------- |
+| `NOT_INITIALIZED`       | Module not initialized  |
+| `NOT_CONNECTED`         | No printer connected    |
+| `PRINT_FAILED`          | Print operation failed  |
+| `CONNECTION_FAILED`     | Failed to connect       |
+| `DEVICE_NOT_FOUND`      | No devices found        |
+| `BLUETOOTH_UNAVAILABLE` | Bluetooth not available |
+| `INIT_ERROR`            | Initialization error    |
+
+## Text Formatting
+
+```typescript
+import { COMMANDS } from "@porlone/rn-thermal-print";
+
+// Bold
+await BLEPrinter.printText(
+  `${COMMANDS.TEXT_FORMAT.TXT_BOLD_ON}Bold Text${COMMANDS.TEXT_FORMAT.TXT_BOLD_OFF}\n`
 );
+
+// Center align
+await BLEPrinter.printText("<C>Centered Text</C>\n");
+
+// Large text
+await BLEPrinter.printText("<CB>Large Bold Center</CB>\n");
 ```
 
-[See more here](https://github.com/porlone-dev/rn-thermal-print/blob/main/example/src/HomeScreen.tsx)
+### Available Tags
 
+- `<C>` - Center align
+- `<B>` - Bold
+- `<CB>` - Center + Bold (large)
+- `<D>` - Double height
+- `<CD>` - Center + Double height
+- `<CM>` - Center + Medium
+
+## Migration from v1.x
+
+```typescript
+// Before (v1.x)
+import { BLEPrinter } from "@porlone/rn-thermal-print";
+import { BleManager } from "react-native-ble-plx";
+import * as Location from "expo-location";
+
+// Manual permission handling required
+const bleManager = new BleManager();
+await Location.requestForegroundPermissionsAsync();
+// ... complex permission logic
+
+await BLEPrinter.connectPrinter(address);
+await BLEPrinter.printBill("text");
+await BLEPrinter.printImageBase64(base64);
+await BLEPrinter.closeConn();
+
+// After (v2.0)
+import { BLEPrinter, requestPermissions } from "@porlone/rn-thermal-print";
+
+// Simple - just one call!
+await requestPermissions();
+
+await BLEPrinter.connect(address);
+await BLEPrinter.printText("text", { cut: true, beep: true });
+await BLEPrinter.printImage(base64); // auto-detects
+await BLEPrinter.disconnect();
 ```
+
+## License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
