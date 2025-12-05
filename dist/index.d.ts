@@ -1,87 +1,121 @@
+import { TableColumn, PrintTableOptions, ColumnAlign } from "./utils/print-table";
 import { COMMANDS } from "./utils/printer-commands";
-interface PrinterOptions {
+export interface PrinterOptions {
+    /** Beep after printing */
     beep?: boolean;
+    /** Cut paper after printing */
     cut?: boolean;
+    /** Add tailing line */
     tailingLine?: boolean;
+    /** Text encoding (default: UTF8) */
     encoding?: string;
 }
-interface PrinterImageOptions {
-    beep?: boolean;
-    cut?: boolean;
-    tailingLine?: boolean;
-    encoding?: string;
+export interface PrinterImageOptions {
+    /** Image width in pixels */
     imageWidth?: number;
+    /** Image height in pixels */
     imageHeight?: number;
-    printerWidthType?: string;
+    /** Printer width type: '58' or '80' */
+    printerWidthType?: '58' | '80';
+    /** Padding X (iOS only) */
     paddingX?: number;
 }
-interface IBLEPrinter {
+export interface BLEDevice {
+    /** Device name */
     device_name: string;
+    /** Device MAC address (used for connection) */
     inner_mac_address: string;
 }
-declare enum ColumnAlignment {
-    LEFT = 0,
-    CENTER = 1,
-    RIGHT = 2
+export declare enum PrinterWidth {
+    WIDTH_58MM = 58,
+    WIDTH_80MM = 80
 }
-declare enum PrinterWidth {
-    "58mm" = 58,
-    "80mm" = 80
-}
-declare const BLEPrinter: {
+/**
+ * Request Bluetooth and Location permissions required for BLE printing
+ * Call this before using any printer functions
+ * @returns Promise<boolean> - true if all permissions granted
+ */
+export declare const requestPermissions: () => Promise<boolean>;
+/**
+ * Check if Bluetooth permissions are granted
+ * @returns Promise<boolean>
+ */
+export declare const checkPermissions: () => Promise<boolean>;
+export declare const BLEPrinter: {
+    /**
+     * Request permissions required for BLE printing (Android)
+     * @returns Promise<boolean> - true if all permissions granted
+     */
+    requestPermissions: () => Promise<boolean>;
+    /**
+     * Check if permissions are granted
+     * @returns Promise<boolean>
+     */
+    checkPermissions: () => Promise<boolean>;
     /**
      * Initialize the BLE printer module
+     * Must be called before scanning for devices
      */
     init: () => Promise<void>;
     /**
-     * Get list of available BLE printers
+     * Get list of paired/available BLE printers
+     * @returns Array of BLE devices
      */
-    getDeviceList: () => Promise<IBLEPrinter[]>;
+    getDeviceList: () => Promise<BLEDevice[]>;
     /**
-     * Connect to a specific printer by MAC address
+     * Connect to a printer by MAC address
+     * @param macAddress - The printer's MAC address (inner_mac_address from getDeviceList)
      */
-    connectPrinter: (inner_mac_address: string) => Promise<string>;
+    connect: (macAddress: string) => Promise<string>;
     /**
-     * Close the current printer connection
+     * Disconnect from the current printer
      */
-    closeConn: () => Promise<void>;
+    disconnect: () => Promise<void>;
     /**
-     * Print text without cutting or beeping (use for building receipts line by line)
+     * Print text
+     * @param text - Text to print
+     * @param opts - Print options (beep, cut, encoding)
      */
     printText: (text: string, opts?: PrinterOptions) => Promise<void>;
     /**
-     * Print text and finish the bill (cuts paper and beeps by default)
+     * Print image from URL or base64 string (auto-detected)
+     * @param imageSource - Image URL (http/https/file) or base64 string
+     * @param opts - Image options (width, height, printerWidth)
      */
-    printBill: (text: string, opts?: PrinterOptions) => Promise<void>;
+    printImage: (imageSource: string, opts?: PrinterImageOptions) => Promise<void>;
     /**
-     * Print image from URL
-     * @param imgUrl - Image URL to print
-     * @param opts - Printer image options
+     * Print raw ESC/POS data (advanced usage)
+     * @param data - Raw data to print
      */
-    printImage: (imgUrl: string, opts?: PrinterImageOptions) => Promise<void>;
+    printRaw: (data: string) => Promise<void>;
     /**
-     * Print image from base64 string
-     * @param base64 - Base64 encoded image string
-     * @param opts - Printer image options
+     * Print a table with automatic column width calculation
+     * Supports frozen columns that won't wrap
+     *
+     * @param data - Array of objects with key-value pairs
+     * @param columns - Column configuration (key autocomplete based on data)
+     * @param tableOpts - Table options (printerWidth, showHeader)
+     * @param printOpts - Print options (beep, cut)
+     *
+     * @example
+     * await BLEPrinter.printTable(
+     *   [
+     *     { item: 'Coffee', qty: '2', price: '50.00' },
+     *     { item: 'Sandwich with Extra Cheese', qty: '1', price: '35.00' },
+     *   ],
+     *   [
+     *     { key: 'item' },  // Flexible - wraps if needed
+     *     { key: 'qty', frozen: true, align: ColumnAlign.CENTER },
+     *     { key: 'price', frozen: true, align: ColumnAlign.RIGHT },
+     *   ],
+     *   { printerWidth: '80mm' }
+     * );
      */
-    printImageBase64: (base64: string, opts?: PrinterImageOptions) => Promise<void>;
-    /**
-     * Print raw data (primarily for Android with encoder support)
-     * @param text - Raw text data to print
-     */
-    printRaw: (text: string) => Promise<void>;
-    /**
-     * Print text in columns
-     * @param texts - Array of text for each column
-     * @param columnWidth - Array of widths for each column (80mm => 46 chars, 58mm => 30 chars)
-     * @param columnAlignment - Array of alignments for each column
-     * @param columnStyle - Array of styles for each column
-     * @param opts - Printer options
-     */
-    printColumnsText: (texts: string[], columnWidth: number[], columnAlignment: ColumnAlignment[], columnStyle?: string[], opts?: PrinterOptions) => Promise<void>;
+    printTable: <T extends Record<string, string>>(data: T[], columns: TableColumn<keyof T & string>[], tableOpts?: PrintTableOptions, printOpts?: PrinterOptions) => Promise<void>;
 };
-export { BLEPrinter, COMMANDS };
-export type { PrinterOptions, PrinterImageOptions, IBLEPrinter };
-export { ColumnAlignment, PrinterWidth };
+export { COMMANDS };
+export type { TableColumn, PrintTableOptions };
+export { ColumnAlign };
 export { PrinterError, PrinterErrorCode } from './errors';
-export type { Spec as NativeThermalPrinterSpec } from './NativeThermalPrinter';
+export { generateTableText } from './utils/print-table';
+export default BLEPrinter;

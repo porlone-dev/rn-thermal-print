@@ -15,13 +15,14 @@
   },
   "files": [
     "dist",
-    "android",
-    "ios",
-    "specs",
-    "rn-thermal-print.podspec",
-    "!**/__tests__",
-    "!**/__fixtures__",
-    "!**/__mocks__"
+    "android/src",
+    "android/build.gradle",
+    "android/gradle.properties",
+    "ios/PrinterSDK",
+    "ios/RNBLEPrinter.h",
+    "ios/RNBLEPrinter.m",
+    "ios/RNThermalReceiptPrinter.xcodeproj/project.pbxproj",
+    "rn-thermal-print.podspec"
   ],
   "keywords": [
     "react-native",
@@ -48,10 +49,7 @@
   },
   "devDependencies": {
     "@types/node": "^20.0.0",
-    "@types/react": "^18.0.0",
     "@types/react-native": "^0.72.0",
-    "react": "18.2.0",
-    "react-native": "0.74.0",
     "rimraf": "^5.0.0",
     "typescript": "^5.0.0"
   },
@@ -65,15 +63,7 @@
       "optional": true
     }
   },
-  "codegenConfig": {
-    "name": "RNThermalPrinterSpec",
-    "type": "modules",
-    "jsSrcsDir": "specs",
-    "android": {
-      "javaPackageName": "com.pinmi.react.printer.turbo"
-    }
-  },
   "author": "porlone.agency@gmail.com",
   "homepage": "https://github.com/porlone-dev/rn-thermal-print#readme",
-  "license": "ISC"
+  "license": "MIT"
 }
