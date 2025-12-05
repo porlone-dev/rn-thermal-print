@@ -1,14 +1,3 @@
-var __assign = (this && this.__assign) || function () {
-    __assign = Object.assign || function(t) {
-        for (var s, i = 1, n = arguments.length; i < n; i++) {
-            s = arguments[i];
-            for (var p in s) if (Object.prototype.hasOwnProperty.call(s, p))
-                t[p] = s[p];
-        }
-        return t;
-    };
-    return __assign.apply(this, arguments);
-};
 var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, generator) {
     function adopt(value) { return value instanceof P ? value : new P(function (resolve) { resolve(value); }); }
     return new (P || (P = Promise))(function (resolve, reject) {
@@ -19,8 +8,8 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
     });
 };
 var __generator = (this && this.__generator) || function (thisArg, body) {
-    var _ = { label: 0, sent: function() { if (t[0] & 1) throw t[1]; return t[1]; }, trys: [], ops: [] }, f, y, t, g;
-    return g = { next: verb(0), "throw": verb(1), "return": verb(2) }, typeof Symbol === "function" && (g[Symbol.iterator] = function() { return this; }), g;
+    var _ = { label: 0, sent: function() { if (t[0] & 1) throw t[1]; return t[1]; }, trys: [], ops: [] }, f, y, t, g = Object.create((typeof Iterator === "function" ? Iterator : Object).prototype);
+    return g.next = verb(0), g["throw"] = verb(1), g["return"] = verb(2), typeof Symbol === "function" && (g[Symbol.iterator] = function() { return this; }), g;
     function verb(n) { return function (v) { return step([n, v]); }; }
     function step(op) {
         if (f) throw new TypeError("Generator is already executing.");
@@ -45,292 +34,422 @@ var __generator = (this && this.__generator) || function (thisArg, body) {
         if (op[0] & 5) throw op[1]; return { value: op[0] ? op[1] : void 0, done: true };
     }
 };
-import { NativeModules, Platform } from "react-native";
+var __spreadArray = (this && this.__spreadArray) || function (to, from, pack) {
+    if (pack || arguments.length === 2) for (var i = 0, l = from.length, ar; i < l; i++) {
+        if (ar || !(i in from)) {
+            if (!ar) ar = Array.prototype.slice.call(from, 0, i);
+            ar[i] = from[i];
+        }
+    }
+    return to.concat(ar || Array.prototype.slice.call(from));
+};
+import { NativeModules, Platform, PermissionsAndroid } from "react-native";
 import * as EPToolkit from "./utils/EPToolkit";
-import { processColumnText } from "./utils/print-column";
+import { generateTableText, ColumnAlign } from "./utils/print-table";
 import { COMMANDS } from "./utils/printer-commands";
-var RNBLEPrinter = NativeModules.RNBLEPrinter;
+import { PrinterError, PrinterErrorCode, wrapError } from "./errors";
+var RNBLEPrinterModule = NativeModules.RNBLEPrinter;
+if (!RNBLEPrinterModule) {
+    throw new PrinterError('RNBLEPrinter native module is not available. Make sure the library is properly linked.', PrinterErrorCode.NOT_INITIALIZED);
+}
+var RNBLEPrinter = RNBLEPrinterModule;
 export var PrinterWidth;
 (function (PrinterWidth) {
-    PrinterWidth[PrinterWidth["58mm"] = 58] = "58mm";
-    PrinterWidth[PrinterWidth["80mm"] = 80] = "80mm";
+    PrinterWidth[PrinterWidth["WIDTH_58MM"] = 58] = "WIDTH_58MM";
+    PrinterWidth[PrinterWidth["WIDTH_80MM"] = 80] = "WIDTH_80MM";
 })(PrinterWidth || (PrinterWidth = {}));
-export var ColumnAlignment;
-(function (ColumnAlignment) {
-    ColumnAlignment[ColumnAlignment["LEFT"] = 0] = "LEFT";
-    ColumnAlignment[ColumnAlignment["CENTER"] = 1] = "CENTER";
-    ColumnAlignment[ColumnAlignment["RIGHT"] = 2] = "RIGHT";
-})(ColumnAlignment || (ColumnAlignment = {}));
-var textTo64Buffer = function (text, opts) {
-    var defaultOptions = {
-        beep: false,
-        cut: false,
-        tailingLine: false,
-        encoding: "UTF8",
-    };
-    var options = __assign(__assign({}, defaultOptions), opts);
-    var fixAndroid = "\n";
-    var buffer = EPToolkit.exchange_text(text + fixAndroid, options);
-    return buffer.toString("base64");
-};
-var billTo64Buffer = function (text, opts) {
-    var defaultOptions = {
-        beep: true,
-        cut: true,
-        encoding: "UTF8",
-        tailingLine: true,
-    };
-    var options = __assign(__assign({}, defaultOptions), opts);
-    var buffer = EPToolkit.exchange_text(text, options);
-    return buffer.toString("base64");
-};
-var textPreprocessingIOS = function (text, canCut, beep) {
-    if (canCut === void 0) { canCut = true; }
-    if (beep === void 0) { beep = true; }
-    var options = {
-        beep: beep,
-        cut: canCut,
-    };
-    return {
-        text: text
-            .replace(/<\/?CB>/g, "")
-            .replace(/<\/?CM>/g, "")
-            .replace(/<\/?CD>/g, "")
-            .replace(/<\/?C>/g, "")
-            .replace(/<\/?D>/g, "")
-            .replace(/<\/?B>/g, "")
-            .replace(/<\/?M>/g, ""),
-        opts: options,
-    };
-};
-var queuePrint = function (fn) {
-    return new Promise(function (resolve) {
-        setTimeout(function () {
-            fn();
-            resolve();
-        }, 100);
+// ============================================================================
+// Internal Helpers
+// ============================================================================
+var processTextAndroid = function (text, opts) {
+    var _a, _b, _c, _d;
+    var buffer = EPToolkit.exchange_text(text + "\n", {
+        beep: (_a = opts.beep) !== null && _a !== void 0 ? _a : false,
+        cut: (_b = opts.cut) !== null && _b !== void 0 ? _b : false,
+        tailingLine: (_c = opts.tailingLine) !== null && _c !== void 0 ? _c : false,
+        encoding: (_d = opts.encoding) !== null && _d !== void 0 ? _d : "UTF8",
     });
+    return buffer.toString("base64");
 };
-var BLEPrinter = {
-    init: function () {
-        return new Promise(function (resolve, reject) {
-            return RNBLEPrinter.init(function () { return resolve(); }, function (error) { return reject(error); });
-        });
-    },
-    getDeviceList: function () {
-        return new Promise(function (resolve, reject) {
-            return RNBLEPrinter.getDeviceList(function (printers) { return resolve(printers); }, function (error) { return reject(error); });
-        });
-    },
-    connectPrinter: function (inner_mac_address) {
-        return new Promise(function (resolve, reject) {
-            return RNBLEPrinter.connectPrinter(inner_mac_address, function (printer) { return resolve(printer); }, function (error) { return reject(error); });
-        });
-    },
-    closeConn: function () {
-        return new Promise(function (resolve) {
-            RNBLEPrinter.closeConn();
-            resolve();
-        });
-    },
-    printText: function (text, opts) {
-        if (opts === void 0) { opts = {}; }
-        return __awaiter(void 0, void 0, void 0, function () {
-            var processedText_1;
-            return __generator(this, function (_a) {
-                switch (_a.label) {
-                    case 0:
-                        if (!(Platform.OS === "ios")) return [3 /*break*/, 2];
-                        processedText_1 = textPreprocessingIOS(text, false, false);
-                        return [4 /*yield*/, queuePrint(function () {
-                                return RNBLEPrinter.printRawData(processedText_1.text, processedText_1.opts, function (error) { return console.warn(error); });
-                            })];
-                    case 1:
-                        _a.sent();
-                        return [3 /*break*/, 4];
-                    case 2: return [4 /*yield*/, queuePrint(function () {
-                            return RNBLEPrinter.printRawData(textTo64Buffer(text, opts), function (error) {
-                                return console.warn(error);
-                            });
-                        })];
-                    case 3:
-                        _a.sent();
-                        _a.label = 4;
-                    case 4: return [2 /*return*/];
+var processTextIOS = function (text) {
+    return text
+        .replace(/<\/?CB>/g, "")
+        .replace(/<\/?CM>/g, "")
+        .replace(/<\/?CD>/g, "")
+        .replace(/<\/?C>/g, "")
+        .replace(/<\/?D>/g, "")
+        .replace(/<\/?B>/g, "")
+        .replace(/<\/?M>/g, "");
+};
+var isBase64 = function (str) {
+    if (!str || str.length === 0)
+        return false;
+    // Check if it's a URL
+    if (str.startsWith('http://') || str.startsWith('https://') || str.startsWith('file://')) {
+        return false;
+    }
+    // Check for base64 pattern
+    var base64Regex = /^[A-Za-z0-9+/]+=*$/;
+    // Remove data URI prefix if present
+    var cleanStr = str.replace(/^data:image\/[a-z]+;base64,/, '');
+    return base64Regex.test(cleanStr.replace(/\s/g, ''));
+};
+// ============================================================================
+// Permissions
+// ============================================================================
+/**
+ * Request Bluetooth and Location permissions required for BLE printing
+ * Call this before using any printer functions
+ * @returns Promise<boolean> - true if all permissions granted
+ */
+export var requestPermissions = function () { return __awaiter(void 0, void 0, void 0, function () {
+    var apiLevel, results, result, error_1;
+    return __generator(this, function (_a) {
+        switch (_a.label) {
+            case 0:
+                if (Platform.OS !== 'android') {
+                    return [2 /*return*/, true]; // iOS handles permissions differently
                 }
-            });
-        });
-    },
-    printBill: function (text, opts) {
-        if (opts === void 0) { opts = {}; }
-        return __awaiter(void 0, void 0, void 0, function () {
-            var processedText_2;
-            var _a, _b;
-            return __generator(this, function (_c) {
-                switch (_c.label) {
-                    case 0:
-                        if (!(Platform.OS === "ios")) return [3 /*break*/, 2];
-                        processedText_2 = textPreprocessingIOS(text, (_a = opts === null || opts === void 0 ? void 0 : opts.cut) !== null && _a !== void 0 ? _a : true, (_b = opts.beep) !== null && _b !== void 0 ? _b : true);
-                        return [4 /*yield*/, queuePrint(function () {
-                                return RNBLEPrinter.printRawData(processedText_2.text, processedText_2.opts, function (error) { return console.warn(error); });
-                            })];
-                    case 1:
-                        _c.sent();
-                        return [3 /*break*/, 4];
-                    case 2: return [4 /*yield*/, queuePrint(function () {
-                            return RNBLEPrinter.printRawData(billTo64Buffer(text, opts), function (error) {
-                                return console.warn(error);
-                            });
-                        })];
-                    case 3:
-                        _c.sent();
-                        _c.label = 4;
-                    case 4: return [2 /*return*/];
+                _a.label = 1;
+            case 1:
+                _a.trys.push([1, 6, , 7]);
+                apiLevel = Platform.Version;
+                if (!(apiLevel >= 31)) return [3 /*break*/, 3];
+                return [4 /*yield*/, PermissionsAndroid.requestMultiple([
+                        PermissionsAndroid.PERMISSIONS.BLUETOOTH_SCAN,
+                        PermissionsAndroid.PERMISSIONS.BLUETOOTH_CONNECT,
+                        PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION,
+                    ])];
+            case 2:
+                results = _a.sent();
+                return [2 /*return*/, (results[PermissionsAndroid.PERMISSIONS.BLUETOOTH_SCAN] === PermissionsAndroid.RESULTS.GRANTED &&
+                        results[PermissionsAndroid.PERMISSIONS.BLUETOOTH_CONNECT] === PermissionsAndroid.RESULTS.GRANTED &&
+                        results[PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION] === PermissionsAndroid.RESULTS.GRANTED)];
+            case 3: return [4 /*yield*/, PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION)];
+            case 4:
+                result = _a.sent();
+                return [2 /*return*/, result === PermissionsAndroid.RESULTS.GRANTED];
+            case 5: return [3 /*break*/, 7];
+            case 6:
+                error_1 = _a.sent();
+                console.error('Failed to request permissions:', error_1);
+                return [2 /*return*/, false];
+            case 7: return [2 /*return*/];
+        }
+    });
+}); };
+/**
+ * Check if Bluetooth permissions are granted
+ * @returns Promise<boolean>
+ */
+export var checkPermissions = function () { return __awaiter(void 0, void 0, void 0, function () {
+    var apiLevel, bluetoothScan, bluetoothConnect, location, _a;
+    return __generator(this, function (_b) {
+        switch (_b.label) {
+            case 0:
+                if (Platform.OS !== 'android') {
+                    return [2 /*return*/, true];
                 }
-            });
-        });
-    },
+                _b.label = 1;
+            case 1:
+                _b.trys.push([1, 8, , 9]);
+                apiLevel = Platform.Version;
+                if (!(apiLevel >= 31)) return [3 /*break*/, 5];
+                return [4 /*yield*/, PermissionsAndroid.check(PermissionsAndroid.PERMISSIONS.BLUETOOTH_SCAN)];
+            case 2:
+                bluetoothScan = _b.sent();
+                return [4 /*yield*/, PermissionsAndroid.check(PermissionsAndroid.PERMISSIONS.BLUETOOTH_CONNECT)];
+            case 3:
+                bluetoothConnect = _b.sent();
+                return [4 /*yield*/, PermissionsAndroid.check(PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION)];
+            case 4:
+                location = _b.sent();
+                return [2 /*return*/, bluetoothScan && bluetoothConnect && location];
+            case 5: return [4 /*yield*/, PermissionsAndroid.check(PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION)];
+            case 6: return [2 /*return*/, _b.sent()];
+            case 7: return [3 /*break*/, 9];
+            case 8:
+                _a = _b.sent();
+                return [2 /*return*/, false];
+            case 9: return [2 /*return*/];
+        }
+    });
+}); };
+// ============================================================================
+// BLEPrinter API
+// ============================================================================
+export var BLEPrinter = {
     /**
-     * image url
-     * @param imgUrl
-     * @param opts
+     * Request permissions required for BLE printing (Android)
+     * @returns Promise<boolean> - true if all permissions granted
      */
-    printImage: function (imgUrl, opts) {
-        if (opts === void 0) { opts = {}; }
-        return __awaiter(this, void 0, void 0, function () {
-            return __generator(this, function (_a) {
-                switch (_a.label) {
-                    case 0:
-                        if (!(Platform.OS === "ios")) return [3 /*break*/, 2];
-                        /**
-                         * just development
-                         */
-                        return [4 /*yield*/, queuePrint(function () {
-                                return RNBLEPrinter.printImageData(imgUrl, opts, function (error) {
-                                    return console.warn(error);
-                                });
-                            })];
-                    case 1:
-                        /**
-                         * just development
-                         */
-                        _a.sent();
-                        return [3 /*break*/, 4];
-                    case 2: return [4 /*yield*/, queuePrint(function () {
-                            var _a, _b;
-                            return RNBLEPrinter.printImageData(imgUrl, (_a = opts === null || opts === void 0 ? void 0 : opts.imageWidth) !== null && _a !== void 0 ? _a : 0, (_b = opts === null || opts === void 0 ? void 0 : opts.imageHeight) !== null && _b !== void 0 ? _b : 0, function (error) { return console.warn(error); });
-                        })];
-                    case 3:
-                        _a.sent();
-                        _a.label = 4;
-                    case 4: return [2 /*return*/];
-                }
-            });
-        });
-    },
+    requestPermissions: requestPermissions,
     /**
-     * base 64 string
-     * @param Base64
-     * @param opts
+     * Check if permissions are granted
+     * @returns Promise<boolean>
      */
-    printImageBase64: function (Base64, opts) {
-        if (opts === void 0) { opts = {}; }
-        return __awaiter(this, void 0, void 0, function () {
-            return __generator(this, function (_a) {
-                switch (_a.label) {
-                    case 0:
-                        if (!(Platform.OS === "ios")) return [3 /*break*/, 2];
-                        /**
-                         * just development
-                         */
-                        return [4 /*yield*/, queuePrint(function () {
-                                return RNBLEPrinter.printImageBase64(Base64, opts, function (error) {
-                                    return console.warn(error);
-                                });
-                            })];
-                    case 1:
-                        /**
-                         * just development
-                         */
-                        _a.sent();
-                        return [3 /*break*/, 4];
-                    case 2: 
-                    /**
-                     * just development
-                     */
-                    return [4 /*yield*/, queuePrint(function () {
-                            var _a, _b;
-                            return RNBLEPrinter.printImageBase64(Base64, (_a = opts === null || opts === void 0 ? void 0 : opts.imageWidth) !== null && _a !== void 0 ? _a : 0, (_b = opts === null || opts === void 0 ? void 0 : opts.imageHeight) !== null && _b !== void 0 ? _b : 0, function (error) { return console.warn(error); });
-                        })];
-                    case 3:
-                        /**
-                         * just development
-                         */
-                        _a.sent();
-                        _a.label = 4;
-                    case 4: return [2 /*return*/];
-                }
-            });
-        });
-    },
+    checkPermissions: checkPermissions,
     /**
-     * android print with encoder
-     * @param text
+     * Initialize the BLE printer module
+     * Must be called before scanning for devices
      */
-    printRaw: function (text) { return __awaiter(void 0, void 0, void 0, function () {
-        var processedText;
+    init: function () { return __awaiter(void 0, void 0, void 0, function () {
+        var error_2;
         return __generator(this, function (_a) {
             switch (_a.label) {
                 case 0:
-                    if (!(Platform.OS === "ios")) return [3 /*break*/, 2];
-                    processedText = textPreprocessingIOS(text, false, false);
-                    return [4 /*yield*/, queuePrint(function () {
-                            return RNBLEPrinter.printRawData(processedText.text, processedText.opts, function (error) { return console.warn(error); });
-                        })];
+                    _a.trys.push([0, 2, , 3]);
+                    return [4 /*yield*/, RNBLEPrinter.init()];
                 case 1:
                     _a.sent();
-                    return [3 /*break*/, 4];
-                case 2: return [4 /*yield*/, queuePrint(function () {
-                        return RNBLEPrinter.printRawData(text, function (error) { return console.warn(error); });
-                    })];
-                case 3:
-                    _a.sent();
-                    _a.label = 4;
-                case 4: return [2 /*return*/];
+                    return [3 /*break*/, 3];
+                case 2:
+                    error_2 = _a.sent();
+                    throw wrapError(error_2, PrinterErrorCode.INIT_ERROR);
+                case 3: return [2 /*return*/];
             }
         });
     }); },
     /**
-     * `columnWidth`
-     * 80mm => 46 character
-     * 58mm => 30 character
+     * Get list of paired/available BLE printers
+     * @returns Array of BLE devices
      */
-    printColumnsText: function (texts, columnWidth, columnAlignment, columnStyle, opts) {
-        if (opts === void 0) { opts = {}; }
-        return __awaiter(void 0, void 0, void 0, function () {
-            var result, processedText_3;
+    getDeviceList: function () { return __awaiter(void 0, void 0, void 0, function () {
+        var devices, error_3;
+        return __generator(this, function (_a) {
+            switch (_a.label) {
+                case 0:
+                    _a.trys.push([0, 2, , 3]);
+                    return [4 /*yield*/, RNBLEPrinter.getDeviceList()];
+                case 1:
+                    devices = _a.sent();
+                    return [2 /*return*/, devices];
+                case 2:
+                    error_3 = _a.sent();
+                    throw wrapError(error_3, PrinterErrorCode.DEVICE_NOT_FOUND);
+                case 3: return [2 /*return*/];
+            }
+        });
+    }); },
+    /**
+     * Connect to a printer by MAC address
+     * @param macAddress - The printer's MAC address (inner_mac_address from getDeviceList)
+     */
+    connect: function (macAddress) { return __awaiter(void 0, void 0, void 0, function () {
+        var result, error_4;
+        return __generator(this, function (_a) {
+            switch (_a.label) {
+                case 0:
+                    _a.trys.push([0, 2, , 3]);
+                    return [4 /*yield*/, RNBLEPrinter.connectPrinter(macAddress)];
+                case 1:
+                    result = _a.sent();
+                    return [2 /*return*/, result];
+                case 2:
+                    error_4 = _a.sent();
+                    throw wrapError(error_4, PrinterErrorCode.CONNECTION_FAILED);
+                case 3: return [2 /*return*/];
+            }
+        });
+    }); },
+    /**
+     * Disconnect from the current printer
+     */
+    disconnect: function () { return __awaiter(void 0, void 0, void 0, function () {
+        var error_5;
+        return __generator(this, function (_a) {
+            switch (_a.label) {
+                case 0:
+                    _a.trys.push([0, 2, , 3]);
+                    return [4 /*yield*/, RNBLEPrinter.closeConn()];
+                case 1:
+                    _a.sent();
+                    return [3 /*break*/, 3];
+                case 2:
+                    error_5 = _a.sent();
+                    throw wrapError(error_5, PrinterErrorCode.NOT_CONNECTED);
+                case 3: return [2 /*return*/];
+            }
+        });
+    }); },
+    /**
+     * Print text
+     * @param text - Text to print
+     * @param opts - Print options (beep, cut, encoding)
+     */
+    printText: function (text_1) {
+        var args_1 = [];
+        for (var _i = 1; _i < arguments.length; _i++) {
+            args_1[_i - 1] = arguments[_i];
+        }
+        return __awaiter(void 0, __spreadArray([text_1], args_1, true), void 0, function (text, opts) {
+            var processedText, data, error_6;
+            var _a, _b;
+            if (opts === void 0) { opts = {}; }
+            return __generator(this, function (_c) {
+                switch (_c.label) {
+                    case 0:
+                        _c.trys.push([0, 5, , 6]);
+                        if (!(Platform.OS === "ios")) return [3 /*break*/, 2];
+                        processedText = processTextIOS(text);
+                        return [4 /*yield*/, RNBLEPrinter.printRawData(processedText, {
+                                beep: (_a = opts.beep) !== null && _a !== void 0 ? _a : false,
+                                cut: (_b = opts.cut) !== null && _b !== void 0 ? _b : false,
+                            })];
+                    case 1:
+                        _c.sent();
+                        return [3 /*break*/, 4];
+                    case 2:
+                        data = processTextAndroid(text, opts);
+                        return [4 /*yield*/, RNBLEPrinter.printRawData(data, opts)];
+                    case 3:
+                        _c.sent();
+                        _c.label = 4;
+                    case 4: return [3 /*break*/, 6];
+                    case 5:
+                        error_6 = _c.sent();
+                        throw wrapError(error_6, PrinterErrorCode.PRINT_FAILED);
+                    case 6: return [2 /*return*/];
+                }
+            });
+        });
+    },
+    /**
+     * Print image from URL or base64 string (auto-detected)
+     * @param imageSource - Image URL (http/https/file) or base64 string
+     * @param opts - Image options (width, height, printerWidth)
+     */
+    printImage: function (imageSource_1) {
+        var args_1 = [];
+        for (var _i = 1; _i < arguments.length; _i++) {
+            args_1[_i - 1] = arguments[_i];
+        }
+        return __awaiter(void 0, __spreadArray([imageSource_1], args_1, true), void 0, function (imageSource, opts) {
+            var base64Data, error_7;
+            if (opts === void 0) { opts = {}; }
             return __generator(this, function (_a) {
                 switch (_a.label) {
                     case 0:
-                        result = processColumnText(texts, columnWidth, columnAlignment, columnStyle);
-                        if (!(Platform.OS === "ios")) return [3 /*break*/, 2];
-                        processedText_3 = textPreprocessingIOS(result, false, false);
-                        return [4 /*yield*/, queuePrint(function () {
-                                return RNBLEPrinter.printRawData(processedText_3.text, processedText_3.opts, function (error) { return console.warn(error); });
-                            })];
+                        _a.trys.push([0, 5, , 6]);
+                        if (!isBase64(imageSource)) return [3 /*break*/, 2];
+                        base64Data = imageSource.replace(/^data:image\/[a-z]+;base64,/, '');
+                        return [4 /*yield*/, RNBLEPrinter.printImageBase64(base64Data, opts)];
                     case 1:
                         _a.sent();
                         return [3 /*break*/, 4];
-                    case 2: return [4 /*yield*/, queuePrint(function () {
-                            return RNBLEPrinter.printRawData(textTo64Buffer(result, opts), function (error) { return console.warn(error); });
-                        })];
+                    case 2: return [4 /*yield*/, RNBLEPrinter.printImageData(imageSource, opts)];
                     case 3:
                         _a.sent();
                         _a.label = 4;
-                    case 4: return [2 /*return*/];
+                    case 4: return [3 /*break*/, 6];
+                    case 5:
+                        error_7 = _a.sent();
+                        throw wrapError(error_7, PrinterErrorCode.PRINT_FAILED);
+                    case 6: return [2 /*return*/];
+                }
+            });
+        });
+    },
+    /**
+     * Print raw ESC/POS data (advanced usage)
+     * @param data - Raw data to print
+     */
+    printRaw: function (data) { return __awaiter(void 0, void 0, void 0, function () {
+        var error_8;
+        return __generator(this, function (_a) {
+            switch (_a.label) {
+                case 0:
+                    _a.trys.push([0, 5, , 6]);
+                    if (!(Platform.OS === "ios")) return [3 /*break*/, 2];
+                    return [4 /*yield*/, RNBLEPrinter.printRawData(data, { beep: false, cut: false })];
+                case 1:
+                    _a.sent();
+                    return [3 /*break*/, 4];
+                case 2: return [4 /*yield*/, RNBLEPrinter.printRawData(data, {})];
+                case 3:
+                    _a.sent();
+                    _a.label = 4;
+                case 4: return [3 /*break*/, 6];
+                case 5:
+                    error_8 = _a.sent();
+                    throw wrapError(error_8, PrinterErrorCode.PRINT_FAILED);
+                case 6: return [2 /*return*/];
+            }
+        });
+    }); },
+    /**
+     * Print a table with automatic column width calculation
+     * Supports frozen columns that won't wrap
+     *
+     * @param data - Array of objects with key-value pairs
+     * @param columns - Column configuration (key autocomplete based on data)
+     * @param tableOpts - Table options (printerWidth, showHeader)
+     * @param printOpts - Print options (beep, cut)
+     *
+     * @example
+     * await BLEPrinter.printTable(
+     *   [
+     *     { item: 'Coffee', qty: '2', price: '50.00' },
+     *     { item: 'Sandwich with Extra Cheese', qty: '1', price: '35.00' },
+     *   ],
+     *   [
+     *     { key: 'item' },  // Flexible - wraps if needed
+     *     { key: 'qty', frozen: true, align: ColumnAlign.CENTER },
+     *     { key: 'price', frozen: true, align: ColumnAlign.RIGHT },
+     *   ],
+     *   { printerWidth: '80mm' }
+     * );
+     */
+    printTable: function (data_1, columns_1) {
+        var args_1 = [];
+        for (var _i = 2; _i < arguments.length; _i++) {
+            args_1[_i - 2] = arguments[_i];
+        }
+        return __awaiter(void 0, __spreadArray([data_1, columns_1], args_1, true), void 0, function (data, columns, tableOpts, printOpts) {
+            var result, processedText, textData, error_9;
+            var _a, _b;
+            if (tableOpts === void 0) { tableOpts = {}; }
+            if (printOpts === void 0) { printOpts = {}; }
+            return __generator(this, function (_c) {
+                switch (_c.label) {
+                    case 0:
+                        _c.trys.push([0, 5, , 6]);
+                        result = generateTableText(data, columns, tableOpts);
+                        if (!(Platform.OS === "ios")) return [3 /*break*/, 2];
+                        processedText = processTextIOS(result);
+                        return [4 /*yield*/, RNBLEPrinter.printRawData(processedText, {
+                                beep: (_a = printOpts.beep) !== null && _a !== void 0 ? _a : false,
+                                cut: (_b = printOpts.cut) !== null && _b !== void 0 ? _b : false,
+                            })];
+                    case 1:
+                        _c.sent();
+                        return [3 /*break*/, 4];
+                    case 2:
+                        textData = processTextAndroid(result, printOpts);
+                        return [4 /*yield*/, RNBLEPrinter.printRawData(textData, printOpts)];
+                    case 3:
+                        _c.sent();
+                        _c.label = 4;
+                    case 4: return [3 /*break*/, 6];
+                    case 5:
+                        error_9 = _c.sent();
+                        throw wrapError(error_9, PrinterErrorCode.PRINT_FAILED);
+                    case 6: return [2 /*return*/];
                 }
             });
         });
     },
 };
-export { BLEPrinter, COMMANDS };
+// ============================================================================
+// Exports
+// ============================================================================
+// ESC/POS Commands
+export { COMMANDS };
+// Enums
+export { ColumnAlign };
+// Errors
+export { PrinterError, PrinterErrorCode } from './errors';
+// Utility for advanced usage
+export { generateTableText } from './utils/print-table';
+// Default export
+export default BLEPrinter;
