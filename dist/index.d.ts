@@ -26,13 +26,23 @@ export interface BLEDevice {
     /** Device MAC address (used for connection) */
     inner_mac_address: string;
 }
+export interface QRCodeOptions {
+    /** QR code size in pixels (default: 200) */
+    size?: number;
+}
+export interface BarcodeOptions {
+    /** Barcode width in pixels (default: 300) */
+    width?: number;
+    /** Barcode height in pixels (default: 80) */
+    height?: number;
+}
+export type BarcodeType = 'CODE128' | 'CODE39' | 'EAN13' | 'EAN8' | 'UPC_A' | 'UPC_E' | 'ITF' | 'CODABAR';
 export declare enum PrinterWidth {
     WIDTH_58MM = 58,
     WIDTH_80MM = 80
 }
 /**
  * Request Bluetooth and Location permissions required for BLE printing
- * Call this before using any printer functions
  * @returns Promise<boolean> - true if all permissions granted
  */
 export declare const requestPermissions: () => Promise<boolean>;
@@ -42,29 +52,19 @@ export declare const requestPermissions: () => Promise<boolean>;
  */
 export declare const checkPermissions: () => Promise<boolean>;
 export declare const BLEPrinter: {
-    /**
-     * Request permissions required for BLE printing (Android)
-     * @returns Promise<boolean> - true if all permissions granted
-     */
     requestPermissions: () => Promise<boolean>;
-    /**
-     * Check if permissions are granted
-     * @returns Promise<boolean>
-     */
     checkPermissions: () => Promise<boolean>;
     /**
      * Initialize the BLE printer module
-     * Must be called before scanning for devices
      */
     init: () => Promise<void>;
     /**
      * Get list of paired/available BLE printers
-     * @returns Array of BLE devices
      */
     getDeviceList: () => Promise<BLEDevice[]>;
     /**
      * Connect to a printer by MAC address
-     * @param macAddress - The printer's MAC address (inner_mac_address from getDeviceList)
+     * @param macAddress - The printer's MAC address
      */
     connect: (macAddress: string) => Promise<string>;
     /**
@@ -72,46 +72,66 @@ export declare const BLEPrinter: {
      */
     disconnect: () => Promise<void>;
     /**
+     * Check if printer is currently connected
+     * @returns Promise<boolean>
+     */
+    isConnected: () => Promise<boolean>;
+    /**
      * Print text
      * @param text - Text to print
-     * @param opts - Print options (beep, cut, encoding)
+     * @param opts - Print options
      */
     printText: (text: string, opts?: PrinterOptions) => Promise<void>;
     /**
      * Print image from URL or base64 string (auto-detected)
-     * @param imageSource - Image URL (http/https/file) or base64 string
-     * @param opts - Image options (width, height, printerWidth)
+     * @param imageSource - Image URL or base64 string
+     * @param opts - Image options
      */
     printImage: (imageSource: string, opts?: PrinterImageOptions) => Promise<void>;
     /**
-     * Print raw ESC/POS data (advanced usage)
+     * Print QR code
+     * @param data - Data to encode in QR code
+     * @param opts - QR code options
+     */
+    printQRCode: (data: string, opts?: QRCodeOptions) => Promise<void>;
+    /**
+     * Print barcode
+     * @param data - Data to encode in barcode
+     * @param type - Barcode type (CODE128, CODE39, EAN13, EAN8, UPC_A, UPC_E, ITF, CODABAR)
+     * @param opts - Barcode options
+     */
+    printBarcode: (data: string, type?: BarcodeType, opts?: BarcodeOptions) => Promise<void>;
+    /**
+     * Print a table with automatic column width calculation
+     * @param data - Array of objects
+     * @param columns - Column configuration
+     * @param tableOpts - Table options
+     * @param printOpts - Print options
+     */
+    printTable: <T extends Record<string, string>>(data: T[], columns: TableColumn<keyof T & string>[], tableOpts?: PrintTableOptions, printOpts?: PrinterOptions) => Promise<void>;
+    /**
+     * Print raw ESC/POS data
      * @param data - Raw data to print
      */
     printRaw: (data: string) => Promise<void>;
     /**
-     * Print a table with automatic column width calculation
-     * Supports frozen columns that won't wrap
-     *
-     * @param data - Array of objects with key-value pairs
-     * @param columns - Column configuration (key autocomplete based on data)
-     * @param tableOpts - Table options (printerWidth, showHeader)
-     * @param printOpts - Print options (beep, cut)
-     *
-     * @example
-     * await BLEPrinter.printTable(
-     *   [
-     *     { item: 'Coffee', qty: '2', price: '50.00' },
-     *     { item: 'Sandwich with Extra Cheese', qty: '1', price: '35.00' },
-     *   ],
-     *   [
-     *     { key: 'item' },  // Flexible - wraps if needed
-     *     { key: 'qty', frozen: true, align: ColumnAlign.CENTER },
-     *     { key: 'price', frozen: true, align: ColumnAlign.RIGHT },
-     *   ],
-     *   { printerWidth: '80mm' }
-     * );
+     * Open cash drawer connected to the printer
      */
-    printTable: <T extends Record<string, string>>(data: T[], columns: TableColumn<keyof T & string>[], tableOpts?: PrintTableOptions, printOpts?: PrinterOptions) => Promise<void>;
+    openCashDrawer: () => Promise<void>;
+    /**
+     * Add a print job to the queue
+     * Jobs are processed sequentially
+     * @param job - Async function that performs the print operation
+     */
+    queuePrint: (job: () => Promise<void>) => Promise<void>;
+    /**
+     * Clear all pending print jobs
+     */
+    clearQueue: () => void;
+    /**
+     * Get number of pending print jobs
+     */
+    getQueueLength: () => number;
 };
 export { COMMANDS };
 export type { TableColumn, PrintTableOptions };

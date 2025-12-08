@@ -49,10 +49,86 @@ export interface BLEDevice {
   inner_mac_address: string;
 }
 
+export interface QRCodeOptions {
+  /** QR code size in pixels (default: 200) */
+  size?: number;
+}
+
+export interface BarcodeOptions {
+  /** Barcode width in pixels (default: 300) */
+  width?: number;
+  /** Barcode height in pixels (default: 80) */
+  height?: number;
+}
+
+export type BarcodeType = 
+  | 'CODE128' 
+  | 'CODE39' 
+  | 'EAN13' 
+  | 'EAN8' 
+  | 'UPC_A' 
+  | 'UPC_E' 
+  | 'ITF' 
+  | 'CODABAR';
+
 export enum PrinterWidth {
   WIDTH_58MM = 58,
   WIDTH_80MM = 80,
 }
+
+// ============================================================================
+// Print Queue
+// ============================================================================
+
+type PrintJob = () => Promise<void>;
+
+class PrintQueue {
+  private queue: PrintJob[] = [];
+  private isProcessing = false;
+
+  async add(job: PrintJob): Promise<void> {
+    return new Promise((resolve, reject) => {
+      this.queue.push(async () => {
+        try {
+          await job();
+          resolve();
+        } catch (error) {
+          reject(error);
+        }
+      });
+      this.process();
+    });
+  }
+
+  private async process(): Promise<void> {
+    if (this.isProcessing || this.queue.length === 0) return;
+    
+    this.isProcessing = true;
+    
+    while (this.queue.length > 0) {
+      const job = this.queue.shift();
+      if (job) {
+        try {
+          await job();
+        } catch (error) {
+          console.error('Print job failed:', error);
+        }
+      }
+    }
+    
+    this.isProcessing = false;
+  }
+
+  clear(): void {
+    this.queue = [];
+  }
+
+  get length(): number {
+    return this.queue.length;
+  }
+}
+
+const printQueue = new PrintQueue();
 
 // ============================================================================
 // Internal Helpers
@@ -81,13 +157,10 @@ const processTextIOS = (text: string) => {
 
 const isBase64 = (str: string): boolean => {
   if (!str || str.length === 0) return false;
-  // Check if it's a URL
   if (str.startsWith('http://') || str.startsWith('https://') || str.startsWith('file://')) {
     return false;
   }
-  // Check for base64 pattern
   const base64Regex = /^[A-Za-z0-9+/]+=*$/;
-  // Remove data URI prefix if present
   const cleanStr = str.replace(/^data:image\/[a-z]+;base64,/, '');
   return base64Regex.test(cleanStr.replace(/\s/g, ''));
 };
@@ -98,19 +171,17 @@ const isBase64 = (str: string): boolean => {
 
 /**
  * Request Bluetooth and Location permissions required for BLE printing
- * Call this before using any printer functions
  * @returns Promise<boolean> - true if all permissions granted
  */
 export const requestPermissions = async (): Promise<boolean> => {
   if (Platform.OS !== 'android') {
-    return true; // iOS handles permissions differently
+    return true;
   }
 
   try {
     const apiLevel = Platform.Version as number;
     
     if (apiLevel >= 31) {
-      // Android 12+ requires BLUETOOTH_SCAN and BLUETOOTH_CONNECT
       const results = await PermissionsAndroid.requestMultiple([
         PermissionsAndroid.PERMISSIONS.BLUETOOTH_SCAN,
         PermissionsAndroid.PERMISSIONS.BLUETOOTH_CONNECT,
@@ -123,7 +194,6 @@ export const requestPermissions = async (): Promise<boolean> => {
         results[PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION] === PermissionsAndroid.RESULTS.GRANTED
       );
     } else {
-      // Android < 12 only requires location
       const result = await PermissionsAndroid.request(
         PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION
       );
@@ -173,21 +243,19 @@ export const checkPermissions = async (): Promise<boolean> => {
 // ============================================================================
 
 export const BLEPrinter = {
-  /**
-   * Request permissions required for BLE printing (Android)
-   * @returns Promise<boolean> - true if all permissions granted
-   */
+  // -------------------------------------------------------------------------
+  // Permissions
+  // -------------------------------------------------------------------------
+  
   requestPermissions,
-
-  /**
-   * Check if permissions are granted
-   * @returns Promise<boolean>
-   */
   checkPermissions,
+
+  // -------------------------------------------------------------------------
+  // Connection Management
+  // -------------------------------------------------------------------------
 
   /**
    * Initialize the BLE printer module
-   * Must be called before scanning for devices
    */
   init: async (): Promise<void> => {
     try {
@@ -199,7 +267,6 @@ export const BLEPrinter = {
 
   /**
    * Get list of paired/available BLE printers
-   * @returns Array of BLE devices
    */
   getDeviceList: async (): Promise<BLEDevice[]> => {
     try {
@@ -212,7 +279,7 @@ export const BLEPrinter = {
 
   /**
    * Connect to a printer by MAC address
-   * @param macAddress - The printer's MAC address (inner_mac_address from getDeviceList)
+   * @param macAddress - The printer's MAC address
    */
   connect: async (macAddress: string): Promise<string> => {
     try {
@@ -235,9 +302,29 @@ export const BLEPrinter = {
   },
 
   /**
+   * Check if printer is currently connected
+   * @returns Promise<boolean>
+   */
+  isConnected: async (): Promise<boolean> => {
+    try {
+      if (Platform.OS === 'ios') {
+        // iOS implementation - check if m_printer exists
+        return await RNBLEPrinter.isConnected?.() ?? false;
+      }
+      return await RNBLEPrinter.isConnected();
+    } catch {
+      return false;
+    }
+  },
+
+  // -------------------------------------------------------------------------
+  // Text Printing
+  // -------------------------------------------------------------------------
+
+  /**
    * Print text
    * @param text - Text to print
-   * @param opts - Print options (beep, cut, encoding)
+   * @param opts - Print options
    */
   printText: async (text: string, opts: PrinterOptions = {}): Promise<void> => {
     try {
@@ -256,15 +343,18 @@ export const BLEPrinter = {
     }
   },
 
+  // -------------------------------------------------------------------------
+  // Image Printing
+  // -------------------------------------------------------------------------
+
   /**
    * Print image from URL or base64 string (auto-detected)
-   * @param imageSource - Image URL (http/https/file) or base64 string
-   * @param opts - Image options (width, height, printerWidth)
+   * @param imageSource - Image URL or base64 string
+   * @param opts - Image options
    */
   printImage: async (imageSource: string, opts: PrinterImageOptions = {}): Promise<void> => {
     try {
       if (isBase64(imageSource)) {
-        // Remove data URI prefix if present
         const base64Data = imageSource.replace(/^data:image\/[a-z]+;base64,/, '');
         await RNBLEPrinter.printImageBase64(base64Data, opts);
       } else {
@@ -275,16 +365,25 @@ export const BLEPrinter = {
     }
   },
 
+  // -------------------------------------------------------------------------
+  // QR Code & Barcode
+  // -------------------------------------------------------------------------
+
   /**
-   * Print raw ESC/POS data (advanced usage)
-   * @param data - Raw data to print
+   * Print QR code
+   * @param data - Data to encode in QR code
+   * @param opts - QR code options
    */
-  printRaw: async (data: string): Promise<void> => {
+  printQRCode: async (data: string, opts: QRCodeOptions = {}): Promise<void> => {
     try {
-      if (Platform.OS === "ios") {
-        await RNBLEPrinter.printRawData(data, { beep: false, cut: false });
+      const size = opts.size ?? 200;
+      
+      if (Platform.OS === 'ios') {
+        // iOS: Generate QR code as image and print
+        await RNBLEPrinter.printQRCode?.(data, size) ?? 
+          Promise.reject(new Error('QR code not supported on this iOS version'));
       } else {
-        await RNBLEPrinter.printRawData(data, {});
+        await RNBLEPrinter.printQRCode(data, size);
       }
     } catch (error) {
       throw wrapError(error, PrinterErrorCode.PRINT_FAILED);
@@ -292,27 +391,41 @@ export const BLEPrinter = {
   },
 
   /**
+   * Print barcode
+   * @param data - Data to encode in barcode
+   * @param type - Barcode type (CODE128, CODE39, EAN13, EAN8, UPC_A, UPC_E, ITF, CODABAR)
+   * @param opts - Barcode options
+   */
+  printBarcode: async (
+    data: string, 
+    type: BarcodeType = 'CODE128', 
+    opts: BarcodeOptions = {}
+  ): Promise<void> => {
+    try {
+      const width = opts.width ?? 300;
+      const height = opts.height ?? 80;
+      
+      if (Platform.OS === 'ios') {
+        await RNBLEPrinter.printBarcode?.(data, type, width, height) ??
+          Promise.reject(new Error('Barcode not supported on this iOS version'));
+      } else {
+        await RNBLEPrinter.printBarcode(data, type, width, height);
+      }
+    } catch (error) {
+      throw wrapError(error, PrinterErrorCode.PRINT_FAILED);
+    }
+  },
+
+  // -------------------------------------------------------------------------
+  // Table Printing
+  // -------------------------------------------------------------------------
+
+  /**
    * Print a table with automatic column width calculation
-   * Supports frozen columns that won't wrap
-   * 
-   * @param data - Array of objects with key-value pairs
-   * @param columns - Column configuration (key autocomplete based on data)
-   * @param tableOpts - Table options (printerWidth, showHeader)
-   * @param printOpts - Print options (beep, cut)
-   * 
-   * @example
-   * await BLEPrinter.printTable(
-   *   [
-   *     { item: 'Coffee', qty: '2', price: '50.00' },
-   *     { item: 'Sandwich with Extra Cheese', qty: '1', price: '35.00' },
-   *   ],
-   *   [
-   *     { key: 'item' },  // Flexible - wraps if needed
-   *     { key: 'qty', frozen: true, align: ColumnAlign.CENTER },
-   *     { key: 'price', frozen: true, align: ColumnAlign.RIGHT },
-   *   ],
-   *   { printerWidth: '80mm' }
-   * );
+   * @param data - Array of objects
+   * @param columns - Column configuration
+   * @param tableOpts - Table options
+   * @param printOpts - Print options
    */
   printTable: async <T extends Record<string, string>>(
     data: T[],
@@ -337,26 +450,83 @@ export const BLEPrinter = {
       throw wrapError(error, PrinterErrorCode.PRINT_FAILED);
     }
   },
+
+  // -------------------------------------------------------------------------
+  // Raw Printing
+  // -------------------------------------------------------------------------
+
+  /**
+   * Print raw ESC/POS data
+   * @param data - Raw data to print
+   */
+  printRaw: async (data: string): Promise<void> => {
+    try {
+      if (Platform.OS === "ios") {
+        await RNBLEPrinter.printRawData(data, { beep: false, cut: false });
+      } else {
+        await RNBLEPrinter.printRawData(data, {});
+      }
+    } catch (error) {
+      throw wrapError(error, PrinterErrorCode.PRINT_FAILED);
+    }
+  },
+
+  // -------------------------------------------------------------------------
+  // Cash Drawer
+  // -------------------------------------------------------------------------
+
+  /**
+   * Open cash drawer connected to the printer
+   */
+  openCashDrawer: async (): Promise<void> => {
+    try {
+      if (Platform.OS === 'ios') {
+        // iOS: Send ESC/POS command directly
+        const cashDrawerCommand = '\x1B\x70\x00\x19\xFA';
+        await RNBLEPrinter.printRawData(cashDrawerCommand, { beep: false, cut: false });
+      } else {
+        await RNBLEPrinter.openCashDrawer();
+      }
+    } catch (error) {
+      throw wrapError(error, PrinterErrorCode.PRINT_FAILED);
+    }
+  },
+
+  // -------------------------------------------------------------------------
+  // Print Queue
+  // -------------------------------------------------------------------------
+
+  /**
+   * Add a print job to the queue
+   * Jobs are processed sequentially
+   * @param job - Async function that performs the print operation
+   */
+  queuePrint: async (job: () => Promise<void>): Promise<void> => {
+    return printQueue.add(job);
+  },
+
+  /**
+   * Clear all pending print jobs
+   */
+  clearQueue: (): void => {
+    printQueue.clear();
+  },
+
+  /**
+   * Get number of pending print jobs
+   */
+  getQueueLength: (): number => {
+    return printQueue.length;
+  },
 };
 
 // ============================================================================
 // Exports
 // ============================================================================
 
-// ESC/POS Commands
 export { COMMANDS };
-
-// Types (re-export from print-table)
 export type { TableColumn, PrintTableOptions };
-
-// Enums
 export { ColumnAlign };
-
-// Errors
 export { PrinterError, PrinterErrorCode } from './errors';
-
-// Utility for advanced usage
 export { generateTableText } from './utils/print-table';
-
-// Default export
 export default BLEPrinter;

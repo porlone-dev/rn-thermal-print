@@ -58,6 +58,86 @@ export var PrinterWidth;
     PrinterWidth[PrinterWidth["WIDTH_58MM"] = 58] = "WIDTH_58MM";
     PrinterWidth[PrinterWidth["WIDTH_80MM"] = 80] = "WIDTH_80MM";
 })(PrinterWidth || (PrinterWidth = {}));
+var PrintQueue = /** @class */ (function () {
+    function PrintQueue() {
+        this.queue = [];
+        this.isProcessing = false;
+    }
+    PrintQueue.prototype.add = function (job) {
+        return __awaiter(this, void 0, void 0, function () {
+            var _this = this;
+            return __generator(this, function (_a) {
+                return [2 /*return*/, new Promise(function (resolve, reject) {
+                        _this.queue.push(function () { return __awaiter(_this, void 0, void 0, function () {
+                            var error_1;
+                            return __generator(this, function (_a) {
+                                switch (_a.label) {
+                                    case 0:
+                                        _a.trys.push([0, 2, , 3]);
+                                        return [4 /*yield*/, job()];
+                                    case 1:
+                                        _a.sent();
+                                        resolve();
+                                        return [3 /*break*/, 3];
+                                    case 2:
+                                        error_1 = _a.sent();
+                                        reject(error_1);
+                                        return [3 /*break*/, 3];
+                                    case 3: return [2 /*return*/];
+                                }
+                            });
+                        }); });
+                        _this.process();
+                    })];
+            });
+        });
+    };
+    PrintQueue.prototype.process = function () {
+        return __awaiter(this, void 0, void 0, function () {
+            var job, error_2;
+            return __generator(this, function (_a) {
+                switch (_a.label) {
+                    case 0:
+                        if (this.isProcessing || this.queue.length === 0)
+                            return [2 /*return*/];
+                        this.isProcessing = true;
+                        _a.label = 1;
+                    case 1:
+                        if (!(this.queue.length > 0)) return [3 /*break*/, 6];
+                        job = this.queue.shift();
+                        if (!job) return [3 /*break*/, 5];
+                        _a.label = 2;
+                    case 2:
+                        _a.trys.push([2, 4, , 5]);
+                        return [4 /*yield*/, job()];
+                    case 3:
+                        _a.sent();
+                        return [3 /*break*/, 5];
+                    case 4:
+                        error_2 = _a.sent();
+                        console.error('Print job failed:', error_2);
+                        return [3 /*break*/, 5];
+                    case 5: return [3 /*break*/, 1];
+                    case 6:
+                        this.isProcessing = false;
+                        return [2 /*return*/];
+                }
+            });
+        });
+    };
+    PrintQueue.prototype.clear = function () {
+        this.queue = [];
+    };
+    Object.defineProperty(PrintQueue.prototype, "length", {
+        get: function () {
+            return this.queue.length;
+        },
+        enumerable: false,
+        configurable: true
+    });
+    return PrintQueue;
+}());
+var printQueue = new PrintQueue();
 // ============================================================================
 // Internal Helpers
 // ============================================================================
@@ -84,13 +164,10 @@ var processTextIOS = function (text) {
 var isBase64 = function (str) {
     if (!str || str.length === 0)
         return false;
-    // Check if it's a URL
     if (str.startsWith('http://') || str.startsWith('https://') || str.startsWith('file://')) {
         return false;
     }
-    // Check for base64 pattern
     var base64Regex = /^[A-Za-z0-9+/]+=*$/;
-    // Remove data URI prefix if present
     var cleanStr = str.replace(/^data:image\/[a-z]+;base64,/, '');
     return base64Regex.test(cleanStr.replace(/\s/g, ''));
 };
@@ -99,16 +176,15 @@ var isBase64 = function (str) {
 // ============================================================================
 /**
  * Request Bluetooth and Location permissions required for BLE printing
- * Call this before using any printer functions
  * @returns Promise<boolean> - true if all permissions granted
  */
 export var requestPermissions = function () { return __awaiter(void 0, void 0, void 0, function () {
-    var apiLevel, results, result, error_1;
+    var apiLevel, results, result, error_3;
     return __generator(this, function (_a) {
         switch (_a.label) {
             case 0:
                 if (Platform.OS !== 'android') {
-                    return [2 /*return*/, true]; // iOS handles permissions differently
+                    return [2 /*return*/, true];
                 }
                 _a.label = 1;
             case 1:
@@ -131,8 +207,8 @@ export var requestPermissions = function () { return __awaiter(void 0, void 0, v
                 return [2 /*return*/, result === PermissionsAndroid.RESULTS.GRANTED];
             case 5: return [3 /*break*/, 7];
             case 6:
-                error_1 = _a.sent();
-                console.error('Failed to request permissions:', error_1);
+                error_3 = _a.sent();
+                console.error('Failed to request permissions:', error_3);
                 return [2 /*return*/, false];
             case 7: return [2 /*return*/];
         }
@@ -179,22 +255,19 @@ export var checkPermissions = function () { return __awaiter(void 0, void 0, voi
 // BLEPrinter API
 // ============================================================================
 export var BLEPrinter = {
-    /**
-     * Request permissions required for BLE printing (Android)
-     * @returns Promise<boolean> - true if all permissions granted
-     */
+    // -------------------------------------------------------------------------
+    // Permissions
+    // -------------------------------------------------------------------------
     requestPermissions: requestPermissions,
-    /**
-     * Check if permissions are granted
-     * @returns Promise<boolean>
-     */
     checkPermissions: checkPermissions,
+    // -------------------------------------------------------------------------
+    // Connection Management
+    // -------------------------------------------------------------------------
     /**
      * Initialize the BLE printer module
-     * Must be called before scanning for devices
      */
     init: function () { return __awaiter(void 0, void 0, void 0, function () {
-        var error_2;
+        var error_4;
         return __generator(this, function (_a) {
             switch (_a.label) {
                 case 0:
@@ -204,18 +277,17 @@ export var BLEPrinter = {
                     _a.sent();
                     return [3 /*break*/, 3];
                 case 2:
-                    error_2 = _a.sent();
-                    throw wrapError(error_2, PrinterErrorCode.INIT_ERROR);
+                    error_4 = _a.sent();
+                    throw wrapError(error_4, PrinterErrorCode.INIT_ERROR);
                 case 3: return [2 /*return*/];
             }
         });
     }); },
     /**
      * Get list of paired/available BLE printers
-     * @returns Array of BLE devices
      */
     getDeviceList: function () { return __awaiter(void 0, void 0, void 0, function () {
-        var devices, error_3;
+        var devices, error_5;
         return __generator(this, function (_a) {
             switch (_a.label) {
                 case 0:
@@ -225,18 +297,18 @@ export var BLEPrinter = {
                     devices = _a.sent();
                     return [2 /*return*/, devices];
                 case 2:
-                    error_3 = _a.sent();
-                    throw wrapError(error_3, PrinterErrorCode.DEVICE_NOT_FOUND);
+                    error_5 = _a.sent();
+                    throw wrapError(error_5, PrinterErrorCode.DEVICE_NOT_FOUND);
                 case 3: return [2 /*return*/];
             }
         });
     }); },
     /**
      * Connect to a printer by MAC address
-     * @param macAddress - The printer's MAC address (inner_mac_address from getDeviceList)
+     * @param macAddress - The printer's MAC address
      */
     connect: function (macAddress) { return __awaiter(void 0, void 0, void 0, function () {
-        var result, error_4;
+        var result, error_6;
         return __generator(this, function (_a) {
             switch (_a.label) {
                 case 0:
@@ -246,8 +318,8 @@ export var BLEPrinter = {
                     result = _a.sent();
                     return [2 /*return*/, result];
                 case 2:
-                    error_4 = _a.sent();
-                    throw wrapError(error_4, PrinterErrorCode.CONNECTION_FAILED);
+                    error_6 = _a.sent();
+                    throw wrapError(error_6, PrinterErrorCode.CONNECTION_FAILED);
                 case 3: return [2 /*return*/];
             }
         });
@@ -256,7 +328,7 @@ export var BLEPrinter = {
      * Disconnect from the current printer
      */
     disconnect: function () { return __awaiter(void 0, void 0, void 0, function () {
-        var error_5;
+        var error_7;
         return __generator(this, function (_a) {
             switch (_a.label) {
                 case 0:
@@ -266,16 +338,44 @@ export var BLEPrinter = {
                     _a.sent();
                     return [3 /*break*/, 3];
                 case 2:
-                    error_5 = _a.sent();
-                    throw wrapError(error_5, PrinterErrorCode.NOT_CONNECTED);
+                    error_7 = _a.sent();
+                    throw wrapError(error_7, PrinterErrorCode.NOT_CONNECTED);
                 case 3: return [2 /*return*/];
             }
         });
     }); },
     /**
+     * Check if printer is currently connected
+     * @returns Promise<boolean>
+     */
+    isConnected: function () { return __awaiter(void 0, void 0, void 0, function () {
+        var _a;
+        var _b, _c;
+        return __generator(this, function (_d) {
+            switch (_d.label) {
+                case 0:
+                    _d.trys.push([0, 4, , 5]);
+                    if (!(Platform.OS === 'ios')) return [3 /*break*/, 2];
+                    return [4 /*yield*/, ((_b = RNBLEPrinter.isConnected) === null || _b === void 0 ? void 0 : _b.call(RNBLEPrinter))];
+                case 1: 
+                // iOS implementation - check if m_printer exists
+                return [2 /*return*/, (_c = _d.sent()) !== null && _c !== void 0 ? _c : false];
+                case 2: return [4 /*yield*/, RNBLEPrinter.isConnected()];
+                case 3: return [2 /*return*/, _d.sent()];
+                case 4:
+                    _a = _d.sent();
+                    return [2 /*return*/, false];
+                case 5: return [2 /*return*/];
+            }
+        });
+    }); },
+    // -------------------------------------------------------------------------
+    // Text Printing
+    // -------------------------------------------------------------------------
+    /**
      * Print text
      * @param text - Text to print
-     * @param opts - Print options (beep, cut, encoding)
+     * @param opts - Print options
      */
     printText: function (text_1) {
         var args_1 = [];
@@ -283,7 +383,7 @@ export var BLEPrinter = {
             args_1[_i - 1] = arguments[_i];
         }
         return __awaiter(void 0, __spreadArray([text_1], args_1, true), void 0, function (text, opts) {
-            var processedText, data, error_6;
+            var processedText, data, error_8;
             var _a, _b;
             if (opts === void 0) { opts = {}; }
             return __generator(this, function (_c) {
@@ -307,17 +407,20 @@ export var BLEPrinter = {
                         _c.label = 4;
                     case 4: return [3 /*break*/, 6];
                     case 5:
-                        error_6 = _c.sent();
-                        throw wrapError(error_6, PrinterErrorCode.PRINT_FAILED);
+                        error_8 = _c.sent();
+                        throw wrapError(error_8, PrinterErrorCode.PRINT_FAILED);
                     case 6: return [2 /*return*/];
                 }
             });
         });
     },
+    // -------------------------------------------------------------------------
+    // Image Printing
+    // -------------------------------------------------------------------------
     /**
      * Print image from URL or base64 string (auto-detected)
-     * @param imageSource - Image URL (http/https/file) or base64 string
-     * @param opts - Image options (width, height, printerWidth)
+     * @param imageSource - Image URL or base64 string
+     * @param opts - Image options
      */
     printImage: function (imageSource_1) {
         var args_1 = [];
@@ -325,7 +428,7 @@ export var BLEPrinter = {
             args_1[_i - 1] = arguments[_i];
         }
         return __awaiter(void 0, __spreadArray([imageSource_1], args_1, true), void 0, function (imageSource, opts) {
-            var base64Data, error_7;
+            var base64Data, error_9;
             if (opts === void 0) { opts = {}; }
             return __generator(this, function (_a) {
                 switch (_a.label) {
@@ -343,62 +446,104 @@ export var BLEPrinter = {
                         _a.label = 4;
                     case 4: return [3 /*break*/, 6];
                     case 5:
-                        error_7 = _a.sent();
-                        throw wrapError(error_7, PrinterErrorCode.PRINT_FAILED);
+                        error_9 = _a.sent();
+                        throw wrapError(error_9, PrinterErrorCode.PRINT_FAILED);
+                    case 6: return [2 /*return*/];
+                }
+            });
+        });
+    },
+    // -------------------------------------------------------------------------
+    // QR Code & Barcode
+    // -------------------------------------------------------------------------
+    /**
+     * Print QR code
+     * @param data - Data to encode in QR code
+     * @param opts - QR code options
+     */
+    printQRCode: function (data_1) {
+        var args_1 = [];
+        for (var _i = 1; _i < arguments.length; _i++) {
+            args_1[_i - 1] = arguments[_i];
+        }
+        return __awaiter(void 0, __spreadArray([data_1], args_1, true), void 0, function (data, opts) {
+            var size, error_10;
+            var _a, _b, _c;
+            if (opts === void 0) { opts = {}; }
+            return __generator(this, function (_d) {
+                switch (_d.label) {
+                    case 0:
+                        _d.trys.push([0, 5, , 6]);
+                        size = (_a = opts.size) !== null && _a !== void 0 ? _a : 200;
+                        if (!(Platform.OS === 'ios')) return [3 /*break*/, 2];
+                        // iOS: Generate QR code as image and print
+                        return [4 /*yield*/, ((_b = RNBLEPrinter.printQRCode) === null || _b === void 0 ? void 0 : _b.call(RNBLEPrinter, data, size))];
+                    case 1:
+                        // iOS: Generate QR code as image and print
+                        (_c = _d.sent()) !== null && _c !== void 0 ? _c : Promise.reject(new Error('QR code not supported on this iOS version'));
+                        return [3 /*break*/, 4];
+                    case 2: return [4 /*yield*/, RNBLEPrinter.printQRCode(data, size)];
+                    case 3:
+                        _d.sent();
+                        _d.label = 4;
+                    case 4: return [3 /*break*/, 6];
+                    case 5:
+                        error_10 = _d.sent();
+                        throw wrapError(error_10, PrinterErrorCode.PRINT_FAILED);
                     case 6: return [2 /*return*/];
                 }
             });
         });
     },
     /**
-     * Print raw ESC/POS data (advanced usage)
-     * @param data - Raw data to print
+     * Print barcode
+     * @param data - Data to encode in barcode
+     * @param type - Barcode type (CODE128, CODE39, EAN13, EAN8, UPC_A, UPC_E, ITF, CODABAR)
+     * @param opts - Barcode options
      */
-    printRaw: function (data) { return __awaiter(void 0, void 0, void 0, function () {
-        var error_8;
-        return __generator(this, function (_a) {
-            switch (_a.label) {
-                case 0:
-                    _a.trys.push([0, 5, , 6]);
-                    if (!(Platform.OS === "ios")) return [3 /*break*/, 2];
-                    return [4 /*yield*/, RNBLEPrinter.printRawData(data, { beep: false, cut: false })];
-                case 1:
-                    _a.sent();
-                    return [3 /*break*/, 4];
-                case 2: return [4 /*yield*/, RNBLEPrinter.printRawData(data, {})];
-                case 3:
-                    _a.sent();
-                    _a.label = 4;
-                case 4: return [3 /*break*/, 6];
-                case 5:
-                    error_8 = _a.sent();
-                    throw wrapError(error_8, PrinterErrorCode.PRINT_FAILED);
-                case 6: return [2 /*return*/];
-            }
+    printBarcode: function (data_1) {
+        var args_1 = [];
+        for (var _i = 1; _i < arguments.length; _i++) {
+            args_1[_i - 1] = arguments[_i];
+        }
+        return __awaiter(void 0, __spreadArray([data_1], args_1, true), void 0, function (data, type, opts) {
+            var width, height, error_11;
+            var _a, _b, _c, _d;
+            if (type === void 0) { type = 'CODE128'; }
+            if (opts === void 0) { opts = {}; }
+            return __generator(this, function (_e) {
+                switch (_e.label) {
+                    case 0:
+                        _e.trys.push([0, 5, , 6]);
+                        width = (_a = opts.width) !== null && _a !== void 0 ? _a : 300;
+                        height = (_b = opts.height) !== null && _b !== void 0 ? _b : 80;
+                        if (!(Platform.OS === 'ios')) return [3 /*break*/, 2];
+                        return [4 /*yield*/, ((_c = RNBLEPrinter.printBarcode) === null || _c === void 0 ? void 0 : _c.call(RNBLEPrinter, data, type, width, height))];
+                    case 1:
+                        (_d = _e.sent()) !== null && _d !== void 0 ? _d : Promise.reject(new Error('Barcode not supported on this iOS version'));
+                        return [3 /*break*/, 4];
+                    case 2: return [4 /*yield*/, RNBLEPrinter.printBarcode(data, type, width, height)];
+                    case 3:
+                        _e.sent();
+                        _e.label = 4;
+                    case 4: return [3 /*break*/, 6];
+                    case 5:
+                        error_11 = _e.sent();
+                        throw wrapError(error_11, PrinterErrorCode.PRINT_FAILED);
+                    case 6: return [2 /*return*/];
+                }
+            });
         });
-    }); },
+    },
+    // -------------------------------------------------------------------------
+    // Table Printing
+    // -------------------------------------------------------------------------
     /**
      * Print a table with automatic column width calculation
-     * Supports frozen columns that won't wrap
-     *
-     * @param data - Array of objects with key-value pairs
-     * @param columns - Column configuration (key autocomplete based on data)
-     * @param tableOpts - Table options (printerWidth, showHeader)
-     * @param printOpts - Print options (beep, cut)
-     *
-     * @example
-     * await BLEPrinter.printTable(
-     *   [
-     *     { item: 'Coffee', qty: '2', price: '50.00' },
-     *     { item: 'Sandwich with Extra Cheese', qty: '1', price: '35.00' },
-     *   ],
-     *   [
-     *     { key: 'item' },  // Flexible - wraps if needed
-     *     { key: 'qty', frozen: true, align: ColumnAlign.CENTER },
-     *     { key: 'price', frozen: true, align: ColumnAlign.RIGHT },
-     *   ],
-     *   { printerWidth: '80mm' }
-     * );
+     * @param data - Array of objects
+     * @param columns - Column configuration
+     * @param tableOpts - Table options
+     * @param printOpts - Print options
      */
     printTable: function (data_1, columns_1) {
         var args_1 = [];
@@ -406,7 +551,7 @@ export var BLEPrinter = {
             args_1[_i - 2] = arguments[_i];
         }
         return __awaiter(void 0, __spreadArray([data_1, columns_1], args_1, true), void 0, function (data, columns, tableOpts, printOpts) {
-            var result, processedText, textData, error_9;
+            var result, processedText, textData, error_12;
             var _a, _b;
             if (tableOpts === void 0) { tableOpts = {}; }
             if (printOpts === void 0) { printOpts = {}; }
@@ -432,24 +577,104 @@ export var BLEPrinter = {
                         _c.label = 4;
                     case 4: return [3 /*break*/, 6];
                     case 5:
-                        error_9 = _c.sent();
-                        throw wrapError(error_9, PrinterErrorCode.PRINT_FAILED);
+                        error_12 = _c.sent();
+                        throw wrapError(error_12, PrinterErrorCode.PRINT_FAILED);
                     case 6: return [2 /*return*/];
                 }
             });
         });
     },
+    // -------------------------------------------------------------------------
+    // Raw Printing
+    // -------------------------------------------------------------------------
+    /**
+     * Print raw ESC/POS data
+     * @param data - Raw data to print
+     */
+    printRaw: function (data) { return __awaiter(void 0, void 0, void 0, function () {
+        var error_13;
+        return __generator(this, function (_a) {
+            switch (_a.label) {
+                case 0:
+                    _a.trys.push([0, 5, , 6]);
+                    if (!(Platform.OS === "ios")) return [3 /*break*/, 2];
+                    return [4 /*yield*/, RNBLEPrinter.printRawData(data, { beep: false, cut: false })];
+                case 1:
+                    _a.sent();
+                    return [3 /*break*/, 4];
+                case 2: return [4 /*yield*/, RNBLEPrinter.printRawData(data, {})];
+                case 3:
+                    _a.sent();
+                    _a.label = 4;
+                case 4: return [3 /*break*/, 6];
+                case 5:
+                    error_13 = _a.sent();
+                    throw wrapError(error_13, PrinterErrorCode.PRINT_FAILED);
+                case 6: return [2 /*return*/];
+            }
+        });
+    }); },
+    // -------------------------------------------------------------------------
+    // Cash Drawer
+    // -------------------------------------------------------------------------
+    /**
+     * Open cash drawer connected to the printer
+     */
+    openCashDrawer: function () { return __awaiter(void 0, void 0, void 0, function () {
+        var cashDrawerCommand, error_14;
+        return __generator(this, function (_a) {
+            switch (_a.label) {
+                case 0:
+                    _a.trys.push([0, 5, , 6]);
+                    if (!(Platform.OS === 'ios')) return [3 /*break*/, 2];
+                    cashDrawerCommand = '\x1B\x70\x00\x19\xFA';
+                    return [4 /*yield*/, RNBLEPrinter.printRawData(cashDrawerCommand, { beep: false, cut: false })];
+                case 1:
+                    _a.sent();
+                    return [3 /*break*/, 4];
+                case 2: return [4 /*yield*/, RNBLEPrinter.openCashDrawer()];
+                case 3:
+                    _a.sent();
+                    _a.label = 4;
+                case 4: return [3 /*break*/, 6];
+                case 5:
+                    error_14 = _a.sent();
+                    throw wrapError(error_14, PrinterErrorCode.PRINT_FAILED);
+                case 6: return [2 /*return*/];
+            }
+        });
+    }); },
+    // -------------------------------------------------------------------------
+    // Print Queue
+    // -------------------------------------------------------------------------
+    /**
+     * Add a print job to the queue
+     * Jobs are processed sequentially
+     * @param job - Async function that performs the print operation
+     */
+    queuePrint: function (job) { return __awaiter(void 0, void 0, void 0, function () {
+        return __generator(this, function (_a) {
+            return [2 /*return*/, printQueue.add(job)];
+        });
+    }); },
+    /**
+     * Clear all pending print jobs
+     */
+    clearQueue: function () {
+        printQueue.clear();
+    },
+    /**
+     * Get number of pending print jobs
+     */
+    getQueueLength: function () {
+        return printQueue.length;
+    },
 };
 // ============================================================================
 // Exports
 // ============================================================================
-// ESC/POS Commands
 export { COMMANDS };
-// Enums
 export { ColumnAlign };
-// Errors
 export { PrinterError, PrinterErrorCode } from './errors';
-// Utility for advanced usage
 export { generateTableText } from './utils/print-table';
-// Default export
 export default BLEPrinter;

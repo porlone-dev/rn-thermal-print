@@ -180,6 +180,10 @@ public class BLEPrinterAdapter implements PrinterAdapter{
             this.mBluetoothDevice = null;
         }
     }
+    
+    public boolean isConnected() {
+        return this.mBluetoothSocket != null && this.mBluetoothSocket.isConnected();
+    }
 
     @Override
     public void printRawData(String rawBase64Data, Callback errorCallback) {

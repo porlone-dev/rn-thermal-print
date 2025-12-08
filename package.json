@@ -1,6 +1,6 @@
 {
   "name": "@porlone/rn-thermal-print",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "description": "A React Native Library to support BLE printer with New Architecture support",
   "main": "dist/index.js",
   "source": "dist/index.js",
@@ -29,18 +29,15 @@
     "thermal",
     "printer",
     "bluetooth",
-    "net",
-    "printer",
-    "rn",
+    "ble",
     "android",
-    "image",
-    "qr",
-    "base64",
+    "ios",
+    "qr-code",
+    "barcode",
     "receipt",
-    "bill",
-    "invoice",
-    "turbo-module",
-    "new-architecture"
+    "pos",
+    "cash-drawer",
+    "esc-pos"
   ],
   "dependencies": {
     "buffer": "^6.0.3",

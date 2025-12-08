@@ -12,6 +12,9 @@ A React Native library for BLE thermal receipt printers. Works out of the box - 
 - 🔵 **Bluetooth Low Energy** printer support
 - 🖼️ **Image printing** - Auto-detects URL or Base64
 - 📊 **Smart table printing** - Auto column widths with frozen column support
+- 📱 **QR Code & Barcode** - Built-in generation and printing
+- 💰 **Cash Drawer** - Open connected cash drawer
+- 📋 **Print Queue** - Sequential print job processing
 - ⚡ **Promise-based API** with proper error handling
 - 📘 **Full TypeScript** support with autocomplete
 
@@ -42,11 +45,7 @@ No additional steps required.
 ## Quick Start
 
 ```typescript
-import {
-  BLEPrinter,
-  ColumnAlign,
-  requestPermissions,
-} from "@porlone/rn-thermal-print";
+import { BLEPrinter, requestPermissions } from "@porlone/rn-thermal-print";
 
 // 1. Request permissions (Android)
 const hasPermission = await requestPermissions();
@@ -58,56 +57,77 @@ if (!hasPermission) {
 // 2. Initialize and get devices
 await BLEPrinter.init();
 const devices = await BLEPrinter.getDeviceList();
-console.log("Available printers:", devices);
 
 // 3. Connect to printer
 await BLEPrinter.connect(devices[0].inner_mac_address);
 
 // 4. Print!
 await BLEPrinter.printText("Hello World!\n");
-await BLEPrinter.printText("================\n", { cut: true });
+await BLEPrinter.printQRCode("https://example.com");
+await BLEPrinter.printText("\n", { cut: true });
 
 // 5. Disconnect when done
 await BLEPrinter.disconnect();
 ```
 
-## v2.0.0 Breaking Changes
+## v2.1.0 New Features
 
-### Removed Functions
+### QR Code Printing
+```typescript
+// Print QR code with default size (200px)
+await BLEPrinter.printQRCode("https://example.com");
 
-- `printColumnsText()` - Use `printTable()` instead
-- `printBill()` - Use `printText()` with `{ cut: true, beep: true }`
-- `printReceipt()` - Use `printTable()` instead
-- `printImageBase64()` - Use `printImage()` (auto-detects base64)
+// Print QR code with custom size
+await BLEPrinter.printQRCode("https://example.com", { size: 300 });
+```
 
-### Renamed Methods
+### Barcode Printing
+```typescript
+// Print CODE128 barcode (default)
+await BLEPrinter.printBarcode("1234567890");
 
-- `connectPrinter()` → `connect()`
-- `closeConn()` → `disconnect()`
+// Print with specific type and size
+await BLEPrinter.printBarcode("1234567890", "EAN13", { width: 300, height: 80 });
 
-### New Features
+// Supported types: CODE128, CODE39, EAN13, EAN8, UPC_A, UPC_E, ITF, CODABAR
+```
 
-- Built-in `requestPermissions()` - No need for `react-native-ble-plx` or `expo-location`
-- `printImage()` now auto-detects URL vs base64
-- `printTable()` with smart column widths and frozen columns
+### Connection Status
+```typescript
+// Check if printer is connected
+const connected = await BLEPrinter.isConnected();
+if (!connected) {
+  await BLEPrinter.connect(address);
+}
+```
+
+### Cash Drawer
+```typescript
+// Open cash drawer connected to printer
+await BLEPrinter.openCashDrawer();
+```
+
+### Print Queue
+```typescript
+// Queue multiple print jobs - processed sequentially
+await BLEPrinter.queuePrint(async () => {
+  await BLEPrinter.printText("Receipt #1\n");
+});
+
+await BLEPrinter.queuePrint(async () => {
+  await BLEPrinter.printText("Receipt #2\n");
+});
+
+// Get queue length
+const pending = BLEPrinter.getQueueLength();
+
+// Clear queue
+BLEPrinter.clearQueue();
+```
 
 ## API Reference
 
-### Permission Functions
-
-```typescript
-// Request BLE permissions (Android only, iOS returns true)
-const granted = await requestPermissions();
-
-// Check if permissions are granted
-const hasPermission = await checkPermissions();
-
-// Also available on BLEPrinter object
-await BLEPrinter.requestPermissions();
-await BLEPrinter.checkPermissions();
-```
-
-### BLEPrinter
+### Connection Management
 
 ```typescript
 // Initialize the printer module
@@ -120,25 +140,67 @@ const devices = await BLEPrinter.getDeviceList();
 // Connect to printer
 await BLEPrinter.connect(macAddress);
 
+// Check connection status
+const connected = await BLEPrinter.isConnected();
+
 // Disconnect
 await BLEPrinter.disconnect();
+```
 
+### Text Printing
+
+```typescript
 // Print text
 await BLEPrinter.printText("Hello\n");
-await BLEPrinter.printText("Goodbye\n", { cut: true, beep: true });
 
-// Print image (URL or base64 - auto-detected)
+// Print with options
+await BLEPrinter.printText("Goodbye\n", { 
+  cut: true,    // Cut paper after printing
+  beep: true,   // Beep after printing
+  encoding: "UTF8"
+});
+```
+
+### Image Printing
+
+```typescript
+// Print from URL
 await BLEPrinter.printImage("https://example.com/logo.png");
+
+// Print from base64 (auto-detected)
 await BLEPrinter.printImage("data:image/png;base64,iVBORw0...");
 await BLEPrinter.printImage("iVBORw0KGgoAAAANSU..."); // raw base64
 
-// Print raw ESC/POS data
-await BLEPrinter.printRaw(rawData);
+// With options
+await BLEPrinter.printImage(imageSource, {
+  imageWidth: 300,
+  imageHeight: 200,
+  printerWidthType: "80" // or "58"
+});
+```
+
+### QR Code & Barcode
+
+```typescript
+// QR Code
+await BLEPrinter.printQRCode(data, { size: 200 });
+
+// Barcode
+await BLEPrinter.printBarcode(data, type, { width: 300, height: 80 });
+
+// Supported barcode types:
+type BarcodeType = 
+  | 'CODE128'   // Default
+  | 'CODE39' 
+  | 'EAN13' 
+  | 'EAN8' 
+  | 'UPC_A' 
+  | 'UPC_E' 
+  | 'ITF' 
+  | 'CODABAR';
 ```
 
 ### Smart Table Printing
-
-`printTable()` automatically calculates column widths. Use `frozen: true` for columns that should never wrap (like prices).
 
 ```typescript
 import { BLEPrinter, ColumnAlign } from "@porlone/rn-thermal-print";
@@ -147,10 +209,9 @@ await BLEPrinter.printTable(
   [
     { item: "Chicken Rice Bowl", qty: "2", price: "25.00" },
     { item: "Iced Lemon Tea Large Size", qty: "1", price: "8.50" },
-    { item: "Mineral Water", qty: "3", price: "5.00" },
   ],
   [
-    { key: "item" }, // Flexible column - wraps if needed
+    { key: "item" },  // Flexible - wraps if needed
     { key: "qty", frozen: true, align: ColumnAlign.CENTER },
     { key: "price", frozen: true, align: ColumnAlign.RIGHT },
   ],
@@ -158,34 +219,27 @@ await BLEPrinter.printTable(
 );
 ```
 
-**Output:**
+### Cash Drawer
 
-```
-item                          qty   price
-Chicken Rice Bowl              2    25.00
-Iced Lemon Tea Large Size      1     8.50
-Mineral Water                  3     5.00
+```typescript
+// Open cash drawer (sends ESC/POS command)
+await BLEPrinter.openCashDrawer();
 ```
 
-### TableColumn Options
+### Print Queue
 
-| Option     | Type        | Description                               |
-| ---------- | ----------- | ----------------------------------------- |
-| `key`      | string      | Key in data object (autocomplete enabled) |
-| `header`   | string      | Header text (defaults to key)             |
-| `frozen`   | boolean     | If true, column won't wrap                |
-| `align`    | ColumnAlign | LEFT, CENTER, or RIGHT                    |
-| `minWidth` | number      | Minimum column width                      |
-| `maxWidth` | number      | Maximum column width                      |
+```typescript
+// Add job to queue
+await BLEPrinter.queuePrint(async () => {
+  await BLEPrinter.printText("Queued job\n");
+});
 
-### PrintTableOptions
+// Get pending jobs count
+const count = BLEPrinter.getQueueLength();
 
-| Option         | Type             | Default | Description       |
-| -------------- | ---------------- | ------- | ----------------- |
-| `printerWidth` | '58mm' \| '80mm' | '80mm'  | Paper width       |
-| `showHeader`   | boolean          | false   | Show header row   |
-| `headerLine`   | boolean          | false   | Line after header |
-| `separator`    | string           | ' '     | Column separator  |
+// Clear all pending jobs
+BLEPrinter.clearQueue();
+```
 
 ## Types
 
@@ -206,18 +260,38 @@ interface PrinterImageOptions {
   imageWidth?: number;
   imageHeight?: number;
   printerWidthType?: "58" | "80";
-  paddingX?: number; // iOS only
+  paddingX?: number;
+}
+
+interface QRCodeOptions {
+  size?: number;  // Default: 200
+}
+
+interface BarcodeOptions {
+  width?: number;   // Default: 300
+  height?: number;  // Default: 80
+}
+
+interface TableColumn<K> {
+  key: K;
+  header?: string;
+  frozen?: boolean;
+  align?: ColumnAlign;
+  minWidth?: number;
+  maxWidth?: number;
+}
+
+interface PrintTableOptions {
+  printerWidth?: "58mm" | "80mm";
+  showHeader?: boolean;
+  headerLine?: boolean;
+  separator?: string;
 }
 
 enum ColumnAlign {
   LEFT = 0,
   CENTER = 1,
   RIGHT = 2,
-}
-
-enum PrinterWidth {
-  WIDTH_58MM = 58,
-  WIDTH_80MM = 80,
 }
 ```
 
@@ -247,15 +321,15 @@ try {
 
 ### Error Codes
 
-| Code                    | Description             |
-| ----------------------- | ----------------------- |
-| `NOT_INITIALIZED`       | Module not initialized  |
-| `NOT_CONNECTED`         | No printer connected    |
-| `PRINT_FAILED`          | Print operation failed  |
-| `CONNECTION_FAILED`     | Failed to connect       |
-| `DEVICE_NOT_FOUND`      | No devices found        |
+| Code | Description |
+|------|-------------|
+| `NOT_INITIALIZED` | Module not initialized |
+| `NOT_CONNECTED` | No printer connected |
+| `PRINT_FAILED` | Print operation failed |
+| `CONNECTION_FAILED` | Failed to connect |
+| `DEVICE_NOT_FOUND` | No devices found |
 | `BLUETOOTH_UNAVAILABLE` | Bluetooth not available |
-| `INIT_ERROR`            | Initialization error    |
+| `INIT_ERROR` | Initialization error |
 
 ## Text Formatting
 
@@ -283,34 +357,48 @@ await BLEPrinter.printText("<CB>Large Bold Center</CB>\n");
 - `<CD>` - Center + Double height
 - `<CM>` - Center + Medium
 
-## Migration from v1.x
+## Complete Receipt Example
 
 ```typescript
-// Before (v1.x)
-import { BLEPrinter } from "@porlone/rn-thermal-print";
-import { BleManager } from "react-native-ble-plx";
-import * as Location from "expo-location";
+import { BLEPrinter, ColumnAlign, COMMANDS } from "@porlone/rn-thermal-print";
 
-// Manual permission handling required
-const bleManager = new BleManager();
-await Location.requestForegroundPermissionsAsync();
-// ... complex permission logic
-
-await BLEPrinter.connectPrinter(address);
-await BLEPrinter.printBill("text");
-await BLEPrinter.printImageBase64(base64);
-await BLEPrinter.closeConn();
-
-// After (v2.0)
-import { BLEPrinter, requestPermissions } from "@porlone/rn-thermal-print";
-
-// Simple - just one call!
-await requestPermissions();
-
-await BLEPrinter.connect(address);
-await BLEPrinter.printText("text", { cut: true, beep: true });
-await BLEPrinter.printImage(base64); // auto-detects
-await BLEPrinter.disconnect();
+async function printReceipt() {
+  // Print header
+  await BLEPrinter.printText("<CB>MY STORE</CB>\n");
+  await BLEPrinter.printText("<C>123 Main Street</C>\n");
+  await BLEPrinter.printText("<C>Tel: 123-456-7890</C>\n\n");
+  
+  // Print QR code for digital receipt
+  await BLEPrinter.printQRCode("https://mystore.com/receipt/12345", { size: 150 });
+  await BLEPrinter.printText("\n");
+  
+  // Print items table
+  await BLEPrinter.printTable(
+    [
+      { item: "Coffee", qty: "2", price: "10.00" },
+      { item: "Sandwich", qty: "1", price: "15.00" },
+    ],
+    [
+      { key: "item" },
+      { key: "qty", frozen: true, align: ColumnAlign.CENTER },
+      { key: "price", frozen: true, align: ColumnAlign.RIGHT },
+    ],
+    { printerWidth: "80mm" }
+  );
+  
+  await BLEPrinter.printText("\n--------------------------------\n");
+  await BLEPrinter.printText("Total:                    $35.00\n");
+  await BLEPrinter.printText("\n<C>Thank you!</C>\n");
+  
+  // Print barcode
+  await BLEPrinter.printBarcode("RCP12345", "CODE128");
+  
+  // Cut paper
+  await BLEPrinter.printText("\n", { cut: true });
+  
+  // Open cash drawer
+  await BLEPrinter.openCashDrawer();
+}
 ```
 
 ## License
