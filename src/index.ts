@@ -49,6 +49,26 @@ export interface BLEDevice {
   inner_mac_address: string;
 }
 
+export interface ConnectionOptions {
+  /** Enable auto-reconnect on connection loss (default: false) */
+  autoReconnect?: boolean;
+  /** Maximum number of reconnection attempts (default: 3) */
+  maxReconnectAttempts?: number;
+  /** Delay between reconnection attempts in milliseconds (default: 2000) */
+  reconnectDelay?: number;
+  /** Connection timeout in milliseconds (default: 10000) */
+  timeout?: number;
+}
+
+export interface PrinterStatus {
+  /** Battery level percentage (0-100), -1 if unavailable */
+  batteryLevel: number;
+  /** Paper level status: 'ok', 'low', 'empty', or 'unknown' */
+  paperStatus: 'ok' | 'low' | 'empty' | 'unknown';
+  /** Whether printer is currently connected */
+  isConnected: boolean;
+}
+
 export interface QRCodeOptions {
   /** QR code size in pixels (default: 200) */
   size?: number;
@@ -280,10 +300,11 @@ export const BLEPrinter = {
   /**
    * Connect to a printer by MAC address
    * @param macAddress - The printer's MAC address
+   * @param options - Connection options (auto-reconnect, timeout, etc.)
    */
-  connect: async (macAddress: string): Promise<string> => {
+  connect: async (macAddress: string, options?: ConnectionOptions): Promise<string> => {
     try {
-      const result = await RNBLEPrinter.connectPrinter(macAddress);
+      const result = await RNBLEPrinter.connectPrinter(macAddress, options ?? {});
       return result;
     } catch (error) {
       throw wrapError(error, PrinterErrorCode.CONNECTION_FAILED);
@@ -517,6 +538,60 @@ export const BLEPrinter = {
    */
   getQueueLength: (): number => {
     return printQueue.length;
+  },
+
+  // -------------------------------------------------------------------------
+  // Printer Status
+  // -------------------------------------------------------------------------
+
+  /**
+   * Get battery level of the printer
+   * @returns Promise<number> - Battery level percentage (0-100), -1 if unavailable
+   */
+  getBatteryLevel: async (): Promise<number> => {
+    try {
+      const level = await RNBLEPrinter.getBatteryLevel?.() ?? -1;
+      return level;
+    } catch (error) {
+      console.warn('Failed to get battery level:', error);
+      return -1;
+    }
+  },
+
+  /**
+   * Get paper status of the printer
+   * @returns Promise<string> - Paper status: 'ok', 'low', 'empty', or 'unknown'
+   */
+  getPaperStatus: async (): Promise<'ok' | 'low' | 'empty' | 'unknown'> => {
+    try {
+      const status = await RNBLEPrinter.getPaperStatus?.() ?? 'unknown';
+      return status as 'ok' | 'low' | 'empty' | 'unknown';
+    } catch (error) {
+      console.warn('Failed to get paper status:', error);
+      return 'unknown';
+    }
+  },
+
+  /**
+   * Get complete printer status including connection, battery, and paper
+   * @returns Promise<PrinterStatus>
+   */
+  getPrinterStatus: async (): Promise<PrinterStatus> => {
+    try {
+      const [isConnected, batteryLevel, paperStatus] = await Promise.all([
+        BLEPrinter.isConnected(),
+        BLEPrinter.getBatteryLevel(),
+        BLEPrinter.getPaperStatus(),
+      ]);
+
+      return {
+        isConnected,
+        batteryLevel,
+        paperStatus,
+      };
+    } catch (error) {
+      throw wrapError(error, PrinterErrorCode.NOT_CONNECTED);
+    }
   },
 };
 

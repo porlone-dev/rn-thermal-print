@@ -26,6 +26,24 @@ export interface BLEDevice {
     /** Device MAC address (used for connection) */
     inner_mac_address: string;
 }
+export interface ConnectionOptions {
+    /** Enable auto-reconnect on connection loss (default: false) */
+    autoReconnect?: boolean;
+    /** Maximum number of reconnection attempts (default: 3) */
+    maxReconnectAttempts?: number;
+    /** Delay between reconnection attempts in milliseconds (default: 2000) */
+    reconnectDelay?: number;
+    /** Connection timeout in milliseconds (default: 10000) */
+    timeout?: number;
+}
+export interface PrinterStatus {
+    /** Battery level percentage (0-100), -1 if unavailable */
+    batteryLevel: number;
+    /** Paper level status: 'ok', 'low', 'empty', or 'unknown' */
+    paperStatus: 'ok' | 'low' | 'empty' | 'unknown';
+    /** Whether printer is currently connected */
+    isConnected: boolean;
+}
 export interface QRCodeOptions {
     /** QR code size in pixels (default: 200) */
     size?: number;
@@ -65,8 +83,9 @@ export declare const BLEPrinter: {
     /**
      * Connect to a printer by MAC address
      * @param macAddress - The printer's MAC address
+     * @param options - Connection options (auto-reconnect, timeout, etc.)
      */
-    connect: (macAddress: string) => Promise<string>;
+    connect: (macAddress: string, options?: ConnectionOptions) => Promise<string>;
     /**
      * Disconnect from the current printer
      */
@@ -132,6 +151,21 @@ export declare const BLEPrinter: {
      * Get number of pending print jobs
      */
     getQueueLength: () => number;
+    /**
+     * Get battery level of the printer
+     * @returns Promise<number> - Battery level percentage (0-100), -1 if unavailable
+     */
+    getBatteryLevel: () => Promise<number>;
+    /**
+     * Get paper status of the printer
+     * @returns Promise<string> - Paper status: 'ok', 'low', 'empty', or 'unknown'
+     */
+    getPaperStatus: () => Promise<"ok" | "low" | "empty" | "unknown">;
+    /**
+     * Get complete printer status including connection, battery, and paper
+     * @returns Promise<PrinterStatus>
+     */
+    getPrinterStatus: () => Promise<PrinterStatus>;
 };
 export { COMMANDS };
 export type { TableColumn, PrintTableOptions };

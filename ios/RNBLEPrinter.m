@@ -51,9 +51,23 @@ RCT_EXPORT_METHOD(getDeviceList:(RCTResponseSenderBlock)successCallback
 }
 
 RCT_EXPORT_METHOD(connectPrinter:(NSString *)inner_mac_address
+                  options:(NSDictionary *)options
                   success:(RCTResponseSenderBlock)successCallback
                   fail:(RCTResponseSenderBlock)errorCallback) {
     @try {
+        // Set connection options if provided
+        if (options != nil) {
+            _autoReconnect = [[options valueForKey:@"autoReconnect"] boolValue];
+            _maxReconnectAttempts = [[options valueForKey:@"maxReconnectAttempts"] integerValue] ?: 3;
+            _reconnectDelay = [[options valueForKey:@"reconnectDelay"] integerValue] ?: 2000;
+            _connectionTimeout = [[options valueForKey:@"timeout"] integerValue] ?: 10000;
+        } else {
+            _autoReconnect = NO;
+            _maxReconnectAttempts = 3;
+            _reconnectDelay = 2000;
+            _connectionTimeout = 10000;
+        }
+        
         __block BOOL found = NO;
         __block Printer* selectedPrinter = nil;
         [_printerArray enumerateObjectsUsingBlock: ^(id obj, NSUInteger idx, BOOL *stop){
@@ -68,6 +82,8 @@ RCT_EXPORT_METHOD(connectPrinter:(NSString *)inner_mac_address
             [[PrinterSDK defaultPrinterSDK] connectBT:selectedPrinter];
             [[NSNotificationCenter defaultCenter] postNotificationName:@"BLEPrinterConnected" object:nil];
             m_printer = selectedPrinter;
+            _lastConnectedAddress = inner_mac_address;
+            _reconnectAttempts = 0;
             successCallback(@[[NSString stringWithFormat:@"Connected to printer %@", selectedPrinter.name]]);
         } else {
             [NSException raise:@"Invalid connection" format:@"connectPrinter: Can't connect to printer %@", inner_mac_address];
@@ -345,6 +361,50 @@ RCT_EXPORT_METHOD(openCashDrawer:(RCTPromiseResolveBlock)resolve
         resolve(nil);
     } @catch (NSException *exception) {
         reject(@"PRINT_ERROR", exception.reason, nil);
+    }
+}
+
+RCT_EXPORT_METHOD(getBatteryLevel:(RCTPromiseResolveBlock)resolve
+                  reject:(RCTPromiseRejectBlock)reject) {
+    @try {
+        if (m_printer == nil) {
+            resolve(@(-1));
+            return;
+        }
+        
+        // Most thermal printers don't support battery level query via ESC/POS
+        // This is a generic implementation - actual command may vary by printer model
+        // For now, return -1 (unavailable)
+        
+        // If printer supports battery query, you can send ESC/POS command here
+        // Example: NSData *statusCommand = [[NSData alloc] initWithBytes:"\x10\x04\x01" length:3];
+        // [[PrinterSDK defaultPrinterSDK] sendData:statusCommand];
+        // Then read response...
+        
+        resolve(@(-1));
+    } @catch (NSException *exception) {
+        resolve(@(-1));
+    }
+}
+
+RCT_EXPORT_METHOD(getPaperStatus:(RCTPromiseResolveBlock)resolve
+                  reject:(RCTPromiseRejectBlock)reject) {
+    @try {
+        if (m_printer == nil) {
+            resolve(@"unknown");
+            return;
+        }
+        
+        // ESC/POS command to query paper sensor status
+        // This is a generic implementation - actual command may vary by printer model
+        // Most printers support this command: 0x10 0x04 0x04
+        
+        // For now, return "unknown" as actual implementation depends on printer model
+        // and would require reading response from printer
+        
+        resolve(@"unknown");
+    } @catch (NSException *exception) {
+        resolve(@"unknown");
     }
 }
 

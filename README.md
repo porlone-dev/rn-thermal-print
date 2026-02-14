@@ -16,6 +16,8 @@ A React Native library for BLE thermal receipt printers. Works out of the box - 
 - 💰 **Cash Drawer** - Open connected cash drawer
 - 📋 **Print Queue** - Sequential print job processing
 - ⚡ **Promise-based API** with proper error handling
+- 🧵 **Thread-safe** - All Bluetooth operations run on background threads
+- 🔄 **Auto-reconnect** - Configurable automatic reconnection on connection loss
 - 📘 **Full TypeScript** support with autocomplete
 
 ## Requirements
@@ -70,9 +72,117 @@ await BLEPrinter.printText("\n", { cut: true });
 await BLEPrinter.disconnect();
 ```
 
-## v2.1.0 New Features
+## Auto-Reconnect & Connection Options
+
+Configure automatic reconnection on connection loss and connection timeout:
+
+```typescript
+// Connect with auto-reconnect
+await BLEPrinter.connect(devices[0].inner_mac_address, {
+  autoReconnect: true, // Enable auto-reconnect on connection loss
+  maxReconnectAttempts: 3, // Maximum reconnection attempts (default: 3)
+  reconnectDelay: 2000, // Delay between attempts in ms (default: 2000)
+  timeout: 10000, // Connection timeout in ms (default: 10000)
+});
+
+// Connect with just timeout
+await BLEPrinter.connect(devices[0].inner_mac_address, {
+  timeout: 5000, // 5 second timeout
+});
+```
+
+**Note**: Auto-reconnect is currently implemented for Android. iOS implementation stores the configuration but automatic reconnection depends on the underlying printer SDK.
+
+### Connection Status
+
+```typescript
+// Check if printer is connected
+const connected = await BLEPrinter.isConnected();
+if (!connected) {
+  await BLEPrinter.connect(address);
+}
+```
+
+### Battery Level
+
+Get printer battery level (if supported by the printer):
+
+```typescript
+// Get battery level
+const batteryLevel = await BLEPrinter.getBatteryLevel();
+// Returns: number (0-100) or -1 if unavailable/not supported
+
+if (batteryLevel >= 0) {
+  console.log(`Battery: ${batteryLevel}%`);
+  if (batteryLevel < 20) {
+    console.log("Low battery warning!");
+  }
+} else {
+  console.log("Battery level not available");
+}
+```
+
+**Note**: Most thermal printers don't support battery level queries via ESC/POS. This feature returns -1 for printers that don't support it. Implementation may need customization for specific printer models.
+
+### Paper Status
+
+Check printer paper status (if supported by the printer):
+
+```typescript
+// Get paper status
+const paperStatus = await BLEPrinter.getPaperStatus();
+// Returns: 'ok' | 'low' | 'empty' | 'unknown'
+
+switch (paperStatus) {
+  case "ok":
+    console.log("Paper level is good");
+    break;
+  case "low":
+    console.log("Paper running low");
+    break;
+  case "empty":
+    console.log("Paper is empty!");
+    break;
+  case "unknown":
+    console.log("Paper status unavailable");
+    break;
+}
+```
+
+**Note**: Paper status detection uses ESC/POS status commands. Some printers may not support this feature or may return 'unknown'. Implementation uses standard ESC/POS commands that work with most compatible printers.
+
+### Complete Printer Status
+
+Get all status information at once:
+
+```typescript
+// Get complete printer status
+const status = await BLEPrinter.getPrinterStatus();
+
+console.log(`Connected: ${status.isConnected}`);
+console.log(`Battery: ${status.batteryLevel}%`);
+console.log(`Paper: ${status.paperStatus}`);
+
+// Example: Check before printing
+const status = await BLEPrinter.getPrinterStatus();
+if (!status.isConnected) {
+  console.log("Printer not connected");
+  return;
+}
+if (status.paperStatus === "empty") {
+  console.log("Please load paper");
+  return;
+}
+if (status.batteryLevel >= 0 && status.batteryLevel < 15) {
+  console.log("Low battery warning");
+}
+
+// Proceed with printing
+await BLEPrinter.printText("Hello World!\n", { cut: true });
+```
 
 ### QR Code Printing
+
 ```typescript
 // Print QR code with default size (200px)
 await BLEPrinter.printQRCode("https://example.com");
@@ -82,32 +192,29 @@ await BLEPrinter.printQRCode("https://example.com", { size: 300 });
 ```
 
 ### Barcode Printing
+
 ```typescript
 // Print CODE128 barcode (default)
 await BLEPrinter.printBarcode("1234567890");
 
 // Print with specific type and size
-await BLEPrinter.printBarcode("1234567890", "EAN13", { width: 300, height: 80 });
+await BLEPrinter.printBarcode("1234567890", "EAN13", {
+  width: 300,
+  height: 80,
+});
 
 // Supported types: CODE128, CODE39, EAN13, EAN8, UPC_A, UPC_E, ITF, CODABAR
 ```
 
-### Connection Status
-```typescript
-// Check if printer is connected
-const connected = await BLEPrinter.isConnected();
-if (!connected) {
-  await BLEPrinter.connect(address);
-}
-```
-
 ### Cash Drawer
+
 ```typescript
 // Open cash drawer connected to printer
 await BLEPrinter.openCashDrawer();
 ```
 
 ### Print Queue
+
 ```typescript
 // Queue multiple print jobs - processed sequentially
 await BLEPrinter.queuePrint(async () => {
@@ -140,11 +247,34 @@ const devices = await BLEPrinter.getDeviceList();
 // Connect to printer
 await BLEPrinter.connect(macAddress);
 
+// Connect with options (auto-reconnect, timeout)
+await BLEPrinter.connect(macAddress, {
+  autoReconnect: true,
+  maxReconnectAttempts: 3,
+  reconnectDelay: 2000,
+  timeout: 10000,
+});
+
 // Check connection status
 const connected = await BLEPrinter.isConnected();
 
 // Disconnect
 await BLEPrinter.disconnect();
+```
+
+### Printer Status
+
+```typescript
+// Get battery level (0-100, or -1 if unavailable)
+const batteryLevel = await BLEPrinter.getBatteryLevel();
+
+// Get paper status
+const paperStatus = await BLEPrinter.getPaperStatus();
+// Returns: 'ok' | 'low' | 'empty' | 'unknown'
+
+// Get complete status
+const status = await BLEPrinter.getPrinterStatus();
+// Returns: { isConnected: boolean, batteryLevel: number, paperStatus: string }
 ```
 
 ### Text Printing
@@ -154,10 +284,10 @@ await BLEPrinter.disconnect();
 await BLEPrinter.printText("Hello\n");
 
 // Print with options
-await BLEPrinter.printText("Goodbye\n", { 
-  cut: true,    // Cut paper after printing
-  beep: true,   // Beep after printing
-  encoding: "UTF8"
+await BLEPrinter.printText("Goodbye\n", {
+  cut: true, // Cut paper after printing
+  beep: true, // Beep after printing
+  encoding: "UTF8",
 });
 ```
 
@@ -175,7 +305,7 @@ await BLEPrinter.printImage("iVBORw0KGgoAAAANSU..."); // raw base64
 await BLEPrinter.printImage(imageSource, {
   imageWidth: 300,
   imageHeight: 200,
-  printerWidthType: "80" // or "58"
+  printerWidthType: "80", // or "58"
 });
 ```
 
@@ -189,15 +319,15 @@ await BLEPrinter.printQRCode(data, { size: 200 });
 await BLEPrinter.printBarcode(data, type, { width: 300, height: 80 });
 
 // Supported barcode types:
-type BarcodeType = 
-  | 'CODE128'   // Default
-  | 'CODE39' 
-  | 'EAN13' 
-  | 'EAN8' 
-  | 'UPC_A' 
-  | 'UPC_E' 
-  | 'ITF' 
-  | 'CODABAR';
+type BarcodeType =
+  | "CODE128" // Default
+  | "CODE39"
+  | "EAN13"
+  | "EAN8"
+  | "UPC_A"
+  | "UPC_E"
+  | "ITF"
+  | "CODABAR";
 ```
 
 ### Smart Table Printing
@@ -211,11 +341,11 @@ await BLEPrinter.printTable(
     { item: "Iced Lemon Tea Large Size", qty: "1", price: "8.50" },
   ],
   [
-    { key: "item" },  // Flexible - wraps if needed
+    { key: "item" }, // Flexible - wraps if needed
     { key: "qty", frozen: true, align: ColumnAlign.CENTER },
     { key: "price", frozen: true, align: ColumnAlign.RIGHT },
   ],
-  { printerWidth: "80mm", showHeader: true }
+  { printerWidth: "80mm", showHeader: true },
 );
 ```
 
@@ -249,6 +379,19 @@ interface BLEDevice {
   inner_mac_address: string;
 }
 
+interface ConnectionOptions {
+  autoReconnect?: boolean; // Enable auto-reconnect (default: false)
+  maxReconnectAttempts?: number; // Max reconnection attempts (default: 3)
+  reconnectDelay?: number; // Delay between attempts in ms (default: 2000)
+  timeout?: number; // Connection timeout in ms (default: 10000)
+}
+
+interface PrinterStatus {
+  batteryLevel: number; // 0-100 or -1 if unavailable
+  paperStatus: "ok" | "low" | "empty" | "unknown";
+  isConnected: boolean;
+}
+
 interface PrinterOptions {
   beep?: boolean;
   cut?: boolean;
@@ -264,12 +407,12 @@ interface PrinterImageOptions {
 }
 
 interface QRCodeOptions {
-  size?: number;  // Default: 200
+  size?: number; // Default: 200
 }
 
 interface BarcodeOptions {
-  width?: number;   // Default: 300
-  height?: number;  // Default: 80
+  width?: number; // Default: 300
+  height?: number; // Default: 80
 }
 
 interface TableColumn<K> {
@@ -321,15 +464,15 @@ try {
 
 ### Error Codes
 
-| Code | Description |
-|------|-------------|
-| `NOT_INITIALIZED` | Module not initialized |
-| `NOT_CONNECTED` | No printer connected |
-| `PRINT_FAILED` | Print operation failed |
-| `CONNECTION_FAILED` | Failed to connect |
-| `DEVICE_NOT_FOUND` | No devices found |
+| Code                    | Description             |
+| ----------------------- | ----------------------- |
+| `NOT_INITIALIZED`       | Module not initialized  |
+| `NOT_CONNECTED`         | No printer connected    |
+| `PRINT_FAILED`          | Print operation failed  |
+| `CONNECTION_FAILED`     | Failed to connect       |
+| `DEVICE_NOT_FOUND`      | No devices found        |
 | `BLUETOOTH_UNAVAILABLE` | Bluetooth not available |
-| `INIT_ERROR` | Initialization error |
+| `INIT_ERROR`            | Initialization error    |
 
 ## Text Formatting
 
@@ -338,7 +481,7 @@ import { COMMANDS } from "@porlone/rn-thermal-print";
 
 // Bold
 await BLEPrinter.printText(
-  `${COMMANDS.TEXT_FORMAT.TXT_BOLD_ON}Bold Text${COMMANDS.TEXT_FORMAT.TXT_BOLD_OFF}\n`
+  `${COMMANDS.TEXT_FORMAT.TXT_BOLD_ON}Bold Text${COMMANDS.TEXT_FORMAT.TXT_BOLD_OFF}\n`,
 );
 
 // Center align
@@ -367,11 +510,13 @@ async function printReceipt() {
   await BLEPrinter.printText("<CB>MY STORE</CB>\n");
   await BLEPrinter.printText("<C>123 Main Street</C>\n");
   await BLEPrinter.printText("<C>Tel: 123-456-7890</C>\n\n");
-  
+
   // Print QR code for digital receipt
-  await BLEPrinter.printQRCode("https://mystore.com/receipt/12345", { size: 150 });
+  await BLEPrinter.printQRCode("https://mystore.com/receipt/12345", {
+    size: 150,
+  });
   await BLEPrinter.printText("\n");
-  
+
   // Print items table
   await BLEPrinter.printTable(
     [
@@ -383,23 +528,91 @@ async function printReceipt() {
       { key: "qty", frozen: true, align: ColumnAlign.CENTER },
       { key: "price", frozen: true, align: ColumnAlign.RIGHT },
     ],
-    { printerWidth: "80mm" }
+    { printerWidth: "80mm" },
   );
-  
+
   await BLEPrinter.printText("\n--------------------------------\n");
   await BLEPrinter.printText("Total:                    $35.00\n");
   await BLEPrinter.printText("\n<C>Thank you!</C>\n");
-  
+
   // Print barcode
   await BLEPrinter.printBarcode("RCP12345", "CODE128");
-  
+
   // Cut paper
   await BLEPrinter.printText("\n", { cut: true });
-  
+
   // Open cash drawer
   await BLEPrinter.openCashDrawer();
 }
 ```
+
+---
+
+## Changelog
+
+### v2.2.0 — Threading & Reliability (2026-02-14)
+
+**🔴 Critical Fixes:**
+
+- **`connect()` no longer blocks the UI thread** — `BluetoothSocket.connect()` now runs on a background `ExecutorService` with a configurable timeout (default: 10 seconds). Previously, connecting to a powered-off or out-of-range printer would freeze the entire React Native app for 12-30+ seconds.
+- **`printImage()` with URL no longer performs network I/O on the main thread** — Image downloads now run on a dedicated background executor with proper network timeouts (15s connect, 30s read).
+
+**🟡 High Priority Fixes:**
+
+- **Added `isConnected()` API** — New native method and JS bridge to check connection status without attempting a print operation. Returns `Promise<boolean>`.
+- **`disconnect()` now properly waits for socket closure** — The socket is closed synchronously, references are nulled, and any in-flight connection attempt is cancelled. This prevents races when `connect()` is called immediately after `disconnect()`.
+- **Print failures now properly reject promises** — All print methods (`printText`, `printRaw`, `printImage`, `printQRCode`, `printBarcode`, `openCashDrawer`) now check `isConnected()` before attempting writes. IOExceptions during printing are properly reported to JavaScript with `PRINT_FAILED` or `NOT_CONNECTED` error codes instead of silently failing.
+
+**🟢 Medium Priority Fixes:**
+
+- **Thread safety across all methods** — All socket access is now guarded by a `ReentrantLock`. Connection state is tracked with `AtomicBoolean`. This prevents `NullPointerException` and `IOException` crashes from concurrent `disconnect()` + `printText()` calls.
+- **Auto-reconnect reliability improvements** — Reconnection logic now uses `AtomicBoolean` guards to prevent duplicate reconnect attempts. Reconnection runs on the connection executor thread and properly resets state on success/failure.
+
+**📋 Other Improvements:**
+
+- Added `NOT_CONNECTED` pre-flight checks in `RNBLEPrinterModule.kt` for all operations.
+- `PrinterAdapter` interface now includes `isConnected()` method.
+- Added `AtomicBoolean` error guards in Kotlin module to prevent double-rejection of React Native promises.
+
+### v2.1.0 — Auto-Reconnect & Printer Status
+
+**New Features:**
+
+- **Auto-reconnect** — Configure automatic reconnection on connection loss with `ConnectionOptions` (`autoReconnect`, `maxReconnectAttempts`, `reconnectDelay`, `timeout`).
+- **Connection timeout** — Configurable timeout for Bluetooth connections (default: 10 seconds).
+- **`isConnected()` API** — Check if the printer is currently connected without attempting a print.
+- **Battery level** — Get printer battery level via `getBatteryLevel()`. Returns 0-100 or -1 if unsupported.
+- **Paper status** — Get paper sensor status via `getPaperStatus()`. Returns `'ok'`, `'low'`, `'empty'`, or `'unknown'`.
+- **Complete printer status** — Get all status information at once via `getPrinterStatus()`.
+
+### v2.0.0 — Major Rewrite
+
+**Breaking Changes:**
+
+- Migrated Android native module from Java to **Kotlin** (`RNBLEPrinterModule.kt`).
+- All methods now use **Promise-based API** instead of mixed callback/promise patterns.
+- Renamed `selectDevice()` to `connectPrinter()` in native module.
+- Image printing auto-detection: pass URL or base64 string to `printImage()`.
+
+**New Features:**
+
+- **QR Code printing** — Built-in QR code generation via ZXing library.
+- **Barcode printing** — Support for CODE128, CODE39, EAN13, EAN8, UPC_A, UPC_E, ITF, CODABAR.
+- **Smart table printing** — Auto column widths, frozen columns, text wrapping, configurable alignment.
+- **Cash drawer** — Open connected cash drawer via ESC/POS command.
+- **Print queue** — Sequential print job processing with `queuePrint()`, `getQueueLength()`, `clearQueue()`.
+- **Built-in permissions** — `requestPermissions()` and `checkPermissions()` for Android 12+ BLE permissions.
+- **Full TypeScript support** — Complete type definitions with autocomplete.
+- **Error handling** — Structured `PrinterError` class with `PrinterErrorCode` enum.
+- **Text formatting tags** — `<C>`, `<B>`, `<CB>`, `<D>`, `<CD>`, `<CM>` for styled text.
+
+### v1.0.0 — Initial Release
+
+- Basic BLE thermal printer support for Android & iOS.
+- Text printing with ESC/POS commands.
+- Image printing from URL.
+- Base64 image printing.
+- Bluetooth device discovery and pairing.
 
 ## License
 

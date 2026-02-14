@@ -306,14 +306,15 @@ export var BLEPrinter = {
     /**
      * Connect to a printer by MAC address
      * @param macAddress - The printer's MAC address
+     * @param options - Connection options (auto-reconnect, timeout, etc.)
      */
-    connect: function (macAddress) { return __awaiter(void 0, void 0, void 0, function () {
+    connect: function (macAddress, options) { return __awaiter(void 0, void 0, void 0, function () {
         var result, error_6;
         return __generator(this, function (_a) {
             switch (_a.label) {
                 case 0:
                     _a.trys.push([0, 2, , 3]);
-                    return [4 /*yield*/, RNBLEPrinter.connectPrinter(macAddress)];
+                    return [4 /*yield*/, RNBLEPrinter.connectPrinter(macAddress, options !== null && options !== void 0 ? options : {})];
                 case 1:
                     result = _a.sent();
                     return [2 /*return*/, result];
@@ -669,6 +670,84 @@ export var BLEPrinter = {
     getQueueLength: function () {
         return printQueue.length;
     },
+    // -------------------------------------------------------------------------
+    // Printer Status
+    // -------------------------------------------------------------------------
+    /**
+     * Get battery level of the printer
+     * @returns Promise<number> - Battery level percentage (0-100), -1 if unavailable
+     */
+    getBatteryLevel: function () { return __awaiter(void 0, void 0, void 0, function () {
+        var level, error_15;
+        var _a, _b;
+        return __generator(this, function (_c) {
+            switch (_c.label) {
+                case 0:
+                    _c.trys.push([0, 2, , 3]);
+                    return [4 /*yield*/, ((_a = RNBLEPrinter.getBatteryLevel) === null || _a === void 0 ? void 0 : _a.call(RNBLEPrinter))];
+                case 1:
+                    level = (_b = _c.sent()) !== null && _b !== void 0 ? _b : -1;
+                    return [2 /*return*/, level];
+                case 2:
+                    error_15 = _c.sent();
+                    console.warn('Failed to get battery level:', error_15);
+                    return [2 /*return*/, -1];
+                case 3: return [2 /*return*/];
+            }
+        });
+    }); },
+    /**
+     * Get paper status of the printer
+     * @returns Promise<string> - Paper status: 'ok', 'low', 'empty', or 'unknown'
+     */
+    getPaperStatus: function () { return __awaiter(void 0, void 0, void 0, function () {
+        var status, error_16;
+        var _a, _b;
+        return __generator(this, function (_c) {
+            switch (_c.label) {
+                case 0:
+                    _c.trys.push([0, 2, , 3]);
+                    return [4 /*yield*/, ((_a = RNBLEPrinter.getPaperStatus) === null || _a === void 0 ? void 0 : _a.call(RNBLEPrinter))];
+                case 1:
+                    status = (_b = _c.sent()) !== null && _b !== void 0 ? _b : 'unknown';
+                    return [2 /*return*/, status];
+                case 2:
+                    error_16 = _c.sent();
+                    console.warn('Failed to get paper status:', error_16);
+                    return [2 /*return*/, 'unknown'];
+                case 3: return [2 /*return*/];
+            }
+        });
+    }); },
+    /**
+     * Get complete printer status including connection, battery, and paper
+     * @returns Promise<PrinterStatus>
+     */
+    getPrinterStatus: function () { return __awaiter(void 0, void 0, void 0, function () {
+        var _a, isConnected, batteryLevel, paperStatus, error_17;
+        return __generator(this, function (_b) {
+            switch (_b.label) {
+                case 0:
+                    _b.trys.push([0, 2, , 3]);
+                    return [4 /*yield*/, Promise.all([
+                            BLEPrinter.isConnected(),
+                            BLEPrinter.getBatteryLevel(),
+                            BLEPrinter.getPaperStatus(),
+                        ])];
+                case 1:
+                    _a = _b.sent(), isConnected = _a[0], batteryLevel = _a[1], paperStatus = _a[2];
+                    return [2 /*return*/, {
+                            isConnected: isConnected,
+                            batteryLevel: batteryLevel,
+                            paperStatus: paperStatus,
+                        }];
+                case 2:
+                    error_17 = _b.sent();
+                    throw wrapError(error_17, PrinterErrorCode.NOT_CONNECTED);
+                case 3: return [2 /*return*/];
+            }
+        });
+    }); },
 };
 // ============================================================================
 // Exports

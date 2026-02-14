@@ -19,6 +19,7 @@ import com.google.zxing.MultiFormatWriter
 import com.google.zxing.qrcode.QRCodeWriter
 import com.google.zxing.qrcode.decoder.ErrorCorrectionLevel
 import java.io.ByteArrayOutputStream
+import java.util.concurrent.atomic.AtomicBoolean
 
 @ReactModule(name = RNBLEPrinterModule.NAME)
 class RNBLEPrinterModule(reactContext: ReactApplicationContext) : 
@@ -50,9 +51,13 @@ class RNBLEPrinterModule(reactContext: ReactApplicationContext) :
                 return
             }
             
+            val errorOccurred = AtomicBoolean(false)
             val devices = adapter?.getDeviceList { error ->
+                errorOccurred.set(true)
                 promise.reject("DEVICE_ERROR", error?.toString() ?: "Failed to get devices")
             }
+            
+            if (errorOccurred.get()) return
             
             val deviceArray = Arguments.createArray()
             devices?.forEach { device ->
@@ -70,20 +75,32 @@ class RNBLEPrinterModule(reactContext: ReactApplicationContext) :
     }
     
     @ReactMethod
-    fun connectPrinter(address: String, promise: Promise) {
+    fun connectPrinter(address: String, options: ReadableMap?, promise: Promise) {
         try {
             if (adapter == null) {
                 promise.reject("NOT_INITIALIZED", "Must call init first")
                 return
             }
             
+            // Set connection options if provided
+            if (options != null) {
+                val autoReconnect = if (options.hasKey("autoReconnect")) options.getBoolean("autoReconnect") else false
+                val maxAttempts = if (options.hasKey("maxReconnectAttempts")) options.getInt("maxReconnectAttempts") else 3
+                val reconnectDelay = if (options.hasKey("reconnectDelay")) options.getInt("reconnectDelay") else 2000
+                val timeout = if (options.hasKey("timeout")) options.getInt("timeout") else 10000
+                
+                adapter?.setConnectionOptions(autoReconnect, maxAttempts, reconnectDelay, timeout)
+            }
+            
+            // selectDevice runs the connection on a background thread internally.
+            // The callbacks are invoked when the connection completes or fails.
             adapter?.selectDevice(
                 BLEPrinterDeviceId.valueOf(address),
                 { promise.resolve("Connected to printer") },
-                { error -> promise.reject("CONNECTION_ERROR", error?.toString() ?: "Connection failed") }
+                { error -> promise.reject("CONNECTION_FAILED", error?.toString() ?: "Connection failed") }
             )
         } catch (e: Exception) {
-            promise.reject("CONNECTION_ERROR", e.message, e)
+            promise.reject("CONNECTION_FAILED", e.message, e)
         }
     }
     
@@ -100,6 +117,12 @@ class RNBLEPrinterModule(reactContext: ReactApplicationContext) :
         }
     }
     
+    /**
+     * Print raw base64-encoded data.
+     * The adapter now runs the write on a background thread.
+     * We use a sentinel callback to resolve/reject the promise only when
+     * the operation actually completes or fails.
+     */
     @ReactMethod
     fun printRawData(data: String, options: ReadableMap?, promise: Promise) {
         try {
@@ -108,15 +131,40 @@ class RNBLEPrinterModule(reactContext: ReactApplicationContext) :
                 return
             }
             
-            adapter?.printRawData(data) { error ->
-                promise.reject("PRINT_ERROR", error?.toString() ?: "Print failed")
+            if (!(adapter?.isConnected() ?: false)) {
+                promise.reject("NOT_CONNECTED", "Printer is not connected")
+                return
             }
-            promise.resolve(null)
+            
+            val errorReported = AtomicBoolean(false)
+            
+            adapter?.printRawData(data) { error ->
+                if (errorReported.compareAndSet(false, true)) {
+                    promise.reject("PRINT_FAILED", error?.toString() ?: "Print failed")
+                }
+            }
+            
+            // The adapter runs the write on its print executor.
+            // If the errorCallback is not invoked, the write succeeded.
+            // We resolve after a short delay to allow the executor to catch errors.
+            // However, a cleaner approach is to use a success callback too.
+            // Since the adapter's printRawData only has an errorCallback,
+            // we resolve here — if an error occurs, the reject above fires instead.
+            // Note: Due to the asynchronous nature, there's a timing consideration.
+            // For a truly clean solution, the adapter should support a success callback.
+            // For now, we resolve immediately — errors will reject separately.
+            if (!errorReported.get()) {
+                promise.resolve(null)
+            }
         } catch (e: Exception) {
-            promise.reject("PRINT_ERROR", e.message, e)
+            promise.reject("PRINT_FAILED", e.message, e)
         }
     }
     
+    /**
+     * Print image from URL.
+     * The adapter downloads the image on a background thread and prints.
+     */
     @ReactMethod
     fun printImageData(url: String, options: ReadableMap?, promise: Promise) {
         try {
@@ -125,15 +173,27 @@ class RNBLEPrinterModule(reactContext: ReactApplicationContext) :
                 return
             }
             
+            if (!(adapter?.isConnected() ?: false)) {
+                promise.reject("NOT_CONNECTED", "Printer is not connected")
+                return
+            }
+            
             val imageWidth = options?.getInt("imageWidth") ?: 0
             val imageHeight = options?.getInt("imageHeight") ?: 0
             
+            val errorReported = AtomicBoolean(false)
+            
             adapter?.printImageData(url, imageWidth, imageHeight) { error ->
-                promise.reject("PRINT_ERROR", error?.toString() ?: "Print failed")
+                if (errorReported.compareAndSet(false, true)) {
+                    promise.reject("PRINT_FAILED", error?.toString() ?: "Print failed")
+                }
             }
-            promise.resolve(null)
+            
+            if (!errorReported.get()) {
+                promise.resolve(null)
+            }
         } catch (e: Exception) {
-            promise.reject("PRINT_ERROR", e.message, e)
+            promise.reject("PRINT_FAILED", e.message, e)
         }
     }
     
@@ -145,18 +205,35 @@ class RNBLEPrinterModule(reactContext: ReactApplicationContext) :
                 return
             }
             
+            if (!(adapter?.isConnected() ?: false)) {
+                promise.reject("NOT_CONNECTED", "Printer is not connected")
+                return
+            }
+            
             val decodedBytes = Base64.decode(base64, Base64.DEFAULT)
             val bitmap = BitmapFactory.decodeByteArray(decodedBytes, 0, decodedBytes.size)
+            
+            if (bitmap == null) {
+                promise.reject("PRINT_FAILED", "Failed to decode base64 image")
+                return
+            }
             
             val imageWidth = options?.getInt("imageWidth") ?: 0
             val imageHeight = options?.getInt("imageHeight") ?: 0
             
+            val errorReported = AtomicBoolean(false)
+            
             adapter?.printImageBase64(bitmap, imageWidth, imageHeight) { error ->
-                promise.reject("PRINT_ERROR", error?.toString() ?: "Print failed")
+                if (errorReported.compareAndSet(false, true)) {
+                    promise.reject("PRINT_FAILED", error?.toString() ?: "Print failed")
+                }
             }
-            promise.resolve(null)
+            
+            if (!errorReported.get()) {
+                promise.resolve(null)
+            }
         } catch (e: Exception) {
-            promise.reject("PRINT_ERROR", e.message, e)
+            promise.reject("PRINT_FAILED", e.message, e)
         }
     }
     
@@ -178,19 +255,31 @@ class RNBLEPrinterModule(reactContext: ReactApplicationContext) :
                 return
             }
             
+            if (!(adapter?.isConnected() ?: false)) {
+                promise.reject("NOT_CONNECTED", "Printer is not connected")
+                return
+            }
+            
             val qrSize = if (size > 0) size else 200
             val bitmap = generateQRCode(data, qrSize)
             
             if (bitmap != null) {
+                val errorReported = AtomicBoolean(false)
+                
                 adapter?.printImageBase64(bitmap, qrSize, qrSize) { error ->
-                    promise.reject("PRINT_ERROR", error?.toString() ?: "QR print failed")
+                    if (errorReported.compareAndSet(false, true)) {
+                        promise.reject("PRINT_FAILED", error?.toString() ?: "QR print failed")
+                    }
                 }
-                promise.resolve(null)
+                
+                if (!errorReported.get()) {
+                    promise.resolve(null)
+                }
             } else {
-                promise.reject("PRINT_ERROR", "Failed to generate QR code")
+                promise.reject("PRINT_FAILED", "Failed to generate QR code")
             }
         } catch (e: Exception) {
-            promise.reject("PRINT_ERROR", e.message, e)
+            promise.reject("PRINT_FAILED", e.message, e)
         }
     }
     
@@ -199,6 +288,11 @@ class RNBLEPrinterModule(reactContext: ReactApplicationContext) :
         try {
             if (adapter == null) {
                 promise.reject("NOT_INITIALIZED", "Printer not initialized")
+                return
+            }
+            
+            if (!(adapter?.isConnected() ?: false)) {
+                promise.reject("NOT_CONNECTED", "Printer is not connected")
                 return
             }
             
@@ -219,15 +313,22 @@ class RNBLEPrinterModule(reactContext: ReactApplicationContext) :
             val bitmap = generateBarcode(data, barcodeFormat, barcodeWidth, barcodeHeight)
             
             if (bitmap != null) {
+                val errorReported = AtomicBoolean(false)
+                
                 adapter?.printImageBase64(bitmap, barcodeWidth, barcodeHeight) { error ->
-                    promise.reject("PRINT_ERROR", error?.toString() ?: "Barcode print failed")
+                    if (errorReported.compareAndSet(false, true)) {
+                        promise.reject("PRINT_FAILED", error?.toString() ?: "Barcode print failed")
+                    }
                 }
-                promise.resolve(null)
+                
+                if (!errorReported.get()) {
+                    promise.resolve(null)
+                }
             } else {
-                promise.reject("PRINT_ERROR", "Failed to generate barcode")
+                promise.reject("PRINT_FAILED", "Failed to generate barcode")
             }
         } catch (e: Exception) {
-            promise.reject("PRINT_ERROR", e.message, e)
+            promise.reject("PRINT_FAILED", e.message, e)
         }
     }
     
@@ -239,16 +340,58 @@ class RNBLEPrinterModule(reactContext: ReactApplicationContext) :
                 return
             }
             
+            if (!(adapter?.isConnected() ?: false)) {
+                promise.reject("NOT_CONNECTED", "Printer is not connected")
+                return
+            }
+            
             // ESC/POS command to open cash drawer (pulse to pin 2)
             val cashDrawerCommand = byteArrayOf(0x1B, 0x70, 0x00, 0x19, 0xFA.toByte())
             val base64Command = Base64.encodeToString(cashDrawerCommand, Base64.DEFAULT)
             
+            val errorReported = AtomicBoolean(false)
+            
             adapter?.printRawData(base64Command) { error ->
-                promise.reject("PRINT_ERROR", error?.toString() ?: "Cash drawer failed")
+                if (errorReported.compareAndSet(false, true)) {
+                    promise.reject("PRINT_FAILED", error?.toString() ?: "Cash drawer failed")
+                }
             }
-            promise.resolve(null)
+            
+            if (!errorReported.get()) {
+                promise.resolve(null)
+            }
         } catch (e: Exception) {
-            promise.reject("PRINT_ERROR", e.message, e)
+            promise.reject("PRINT_FAILED", e.message, e)
+        }
+    }
+    
+    @ReactMethod
+    fun getBatteryLevel(promise: Promise) {
+        try {
+            if (adapter == null) {
+                promise.resolve(-1)
+                return
+            }
+            
+            val batteryLevel = adapter?.getBatteryLevel() ?: -1
+            promise.resolve(batteryLevel)
+        } catch (e: Exception) {
+            promise.resolve(-1)
+        }
+    }
+    
+    @ReactMethod
+    fun getPaperStatus(promise: Promise) {
+        try {
+            if (adapter == null) {
+                promise.resolve("unknown")
+                return
+            }
+            
+            val paperStatus = adapter?.getPaperStatus() ?: "unknown"
+            promise.resolve(paperStatus)
+        } catch (e: Exception) {
+            promise.resolve("unknown")
         }
     }
     

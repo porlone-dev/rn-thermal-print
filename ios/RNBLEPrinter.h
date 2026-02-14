@@ -19,6 +19,14 @@
 @interface RNBLEPrinter : NSObject <RCTBridgeModule>{
     NSMutableArray* _printerArray;
     NSObject* m_printer;
+    
+    // Connection options
+    BOOL _autoReconnect;
+    NSInteger _maxReconnectAttempts;
+    NSInteger _reconnectDelay;
+    NSInteger _connectionTimeout;
+    NSInteger _reconnectAttempts;
+    NSString* _lastConnectedAddress;
 }
 @end
 
