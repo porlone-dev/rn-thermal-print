@@ -550,18 +550,22 @@ async function printReceipt() {
 
 ## Changelog
 
-### v2.2.0 — Threading & Reliability (2026-02-14)
+### v2.2.1-rc.1 — Print Ordering & Promise Fixes (2026-02-16)
 
 **🔴 Critical Fixes:**
 
-- **`connect()` no longer blocks the UI thread** — `BluetoothSocket.connect()` now runs on a background `ExecutorService` with a configurable timeout (default: 10 seconds). Previously, connecting to a powered-off or out-of-range printer would freeze the entire React Native app for 12-30+ seconds.
-- **`printImage()` with URL no longer performs network I/O on the main thread** — Image downloads now run on a dedicated background executor with proper network timeouts (15s connect, 30s read).
+- **Print ordering is now strictly guaranteed** — All print operations (`printRawData`, `printImageData`, `printImageBase64`) are serialized on a single `printExecutor`. Previously, image printing used a separate executor, which caused race conditions.
+- **Promises resolve only AFTER physical print completes** — Fixed a major bug where promises resolved immediately after queuing. Now, `await BLEPrinter.printText()` actually waits for the Bluetooth write to finish.
 
-**🟡 High Priority Fixes:**
+### v2.2.0 — Threading & Reliability (2026-02-15)
 
+**🔴 Critical Fixes:**
+
+- **`connect()` no longer blocks the UI thread** — `BluetoothSocket.connect()` now runs on a background `ExecutorService` with a configurable timeout.
+- **`printImage()` with URL moved to background** — Image downloads now run on the print executor with proper network timeouts.
 - **Added `isConnected()` API** — New native method and JS bridge to check connection status without attempting a print operation. Returns `Promise<boolean>`.
 - **`disconnect()` now properly waits for socket closure** — The socket is closed synchronously, references are nulled, and any in-flight connection attempt is cancelled. This prevents races when `connect()` is called immediately after `disconnect()`.
-- **Print failures now properly reject promises** — All print methods (`printText`, `printRaw`, `printImage`, `printQRCode`, `printBarcode`, `openCashDrawer`) now check `isConnected()` before attempting writes. IOExceptions during printing are properly reported to JavaScript with `PRINT_FAILED` or `NOT_CONNECTED` error codes instead of silently failing.
+- **Print failures now properly reject promises** — All print methods (`printText`, `printRaw`, `printImage`, `printQRCode`, `printBarcode`, `openCashDrawer`) report IOExceptions to JavaScript with `PRINT_FAILED` or `NOT_CONNECTED` error codes instead of silently failing.
 
 **🟢 Medium Priority Fixes:**
 
@@ -570,9 +574,8 @@ async function printReceipt() {
 
 **📋 Other Improvements:**
 
-- Added `NOT_CONNECTED` pre-flight checks in `RNBLEPrinterModule.kt` for all operations.
-- `PrinterAdapter` interface now includes `isConnected()` method.
-- Added `AtomicBoolean` error guards in Kotlin module to prevent double-rejection of React Native promises.
+- `PrinterAdapter` interface now includes `isConnected()` method and `successCallback` on all print methods.
+- Removed separate `imageExecutor` — consolidated into single `printExecutor` for correctness.
 
 ### v2.1.0 — Auto-Reconnect & Printer Status
 

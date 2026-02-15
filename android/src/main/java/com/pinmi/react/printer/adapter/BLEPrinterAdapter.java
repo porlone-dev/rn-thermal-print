@@ -37,8 +37,14 @@ import java.util.concurrent.locks.ReentrantLock;
 
 /**
  * BLE Printer Adapter with proper threading, timeouts, and error handling.
- * All socket access is guarded by a ReentrantLock.
- * Connection and print operations run on background threads.
+ *
+ * Key design decisions:
+ * - ALL print operations (raw data, images from URL, images from base64) are
+ *   serialized on a SINGLE {@code printExecutor} to guarantee print ordering.
+ * - Every print method takes both a successCallback and an errorCallback.
+ *   Exactly one of them is invoked when the I/O completes (never immediately).
+ * - Socket access is guarded by a ReentrantLock.
+ * - Connection runs on a separate connectionExecutor.
  */
 public class BLEPrinterAdapter implements PrinterAdapter {
 
@@ -68,9 +74,10 @@ public class BLEPrinterAdapter implements PrinterAdapter {
     private final AtomicBoolean isReconnecting = new AtomicBoolean(false);
 
     // --- Thread pools ---
+    // Connection has its own executor so it doesn't block the print queue.
     private final ExecutorService connectionExecutor = Executors.newSingleThreadExecutor();
+    // ALL print operations share a SINGLE executor to guarantee ordering.
     private final ExecutorService printExecutor = Executors.newSingleThreadExecutor();
-    private final ExecutorService imageExecutor = Executors.newSingleThreadExecutor();
 
     // --- ESC/POS constants ---
     private final static char ESC_CHAR = 0x1B;
@@ -175,7 +182,7 @@ public class BLEPrinterAdapter implements PrinterAdapter {
             socketLock.unlock();
         }
 
-        // Close existing connection first  
+        // Close existing connection first
         closeConnectionIfExistsSync();
 
         Set<BluetoothDevice> pairedDevices = getBTAdapter().getBondedDevices();
@@ -211,7 +218,7 @@ public class BLEPrinterAdapter implements PrinterAdapter {
             try {
                 connectBluetoothDeviceSync(device);
 
-                // Success — invoke callback
+                // Success — invoke callback on main thread
                 new Handler(Looper.getMainLooper()).post(() -> {
                     successCallback.invoke(new BLEPrinterDevice(device).toRNWritableMap());
                 });
@@ -252,7 +259,7 @@ public class BLEPrinterAdapter implements PrinterAdapter {
 
     /**
      * Connects a socket with a configurable timeout.
-     * Spawns a connect thread and waits up to `connectionTimeout` ms.
+     * Spawns a connect thread and waits up to {@code connectionTimeout} ms.
      * If the timeout fires first, the socket is closed to unblock connect().
      */
     private void connectSocketWithTimeout(final BluetoothSocket socket, BluetoothDevice device) throws IOException {
@@ -347,7 +354,7 @@ public class BLEPrinterAdapter implements PrinterAdapter {
     }
 
     /**
-     * Synchronously closes the socket, waits for it to finish, 
+     * Synchronously closes the socket, waits for it to finish,
      * cancels any in-flight connection, and nulls out references.
      */
     private void closeConnectionIfExistsSync() {
@@ -548,51 +555,34 @@ public class BLEPrinterAdapter implements PrinterAdapter {
     // Raw Data Printing
     // =========================================================================
 
+    /**
+     * Print raw base64-encoded data.
+     * Queued on the single printExecutor — ordering is guaranteed.
+     * successCallback is invoked after the write completes.
+     * errorCallback is invoked if anything goes wrong.
+     */
     @Override
-    public void printRawData(String rawBase64Data, Callback errorCallback) {
-        socketLock.lock();
-        try {
-            if (this.mBluetoothSocket == null || !this.mBluetoothSocket.isConnected()) {
-                socketLock.unlock();
-                // Try auto-reconnect
-                if (autoReconnect && lastConnectedAddress != null) {
-                    attemptReconnect();
-                }
-                errorCallback.invoke("NOT_CONNECTED: Printer is not connected");
-                return;
-            }
-        } finally {
-            if (socketLock.isHeldByCurrentThread()) {
-                socketLock.unlock();
-            }
-        }
-
-        final String rawData = rawBase64Data;
-
+    public void printRawData(String rawBase64Data, Callback successCallback, Callback errorCallback) {
         printExecutor.submit(() -> {
             socketLock.lock();
             try {
                 if (this.mBluetoothSocket == null || !this.mBluetoothSocket.isConnected()) {
-                    new Handler(Looper.getMainLooper()).post(() -> {
-                        if (autoReconnect) attemptReconnect();
-                        errorCallback.invoke("NOT_CONNECTED: Connection lost during print");
-                    });
+                    if (autoReconnect) attemptReconnect();
+                    invokeOnMain(errorCallback, "NOT_CONNECTED: Printer is not connected");
                     return;
                 }
 
-                byte[] bytes = Base64.decode(rawData, Base64.DEFAULT);
+                byte[] bytes = Base64.decode(rawBase64Data, Base64.DEFAULT);
                 OutputStream printerOutputStream = this.mBluetoothSocket.getOutputStream();
                 printerOutputStream.write(bytes, 0, bytes.length);
                 printerOutputStream.flush();
 
                 Log.v(LOG_TAG, "Raw data printed successfully (" + bytes.length + " bytes)");
+                invokeOnMain(successCallback);
             } catch (IOException e) {
                 Log.e(LOG_TAG, "Failed to print raw data: " + e.getMessage());
-                e.printStackTrace();
-                new Handler(Looper.getMainLooper()).post(() -> {
-                    if (autoReconnect) attemptReconnect();
-                    errorCallback.invoke("PRINT_FAILED: " + e.getMessage());
-                });
+                if (autoReconnect) attemptReconnect();
+                invokeOnMain(errorCallback, "PRINT_FAILED: " + e.getMessage());
             } finally {
                 socketLock.unlock();
             }
@@ -600,13 +590,13 @@ public class BLEPrinterAdapter implements PrinterAdapter {
     }
 
     // =========================================================================
-    // Image Printing — URL (background network I/O)
+    // Image Printing — URL (with download, all on printExecutor)
     // =========================================================================
 
     /**
-     * Download bitmap from URL on a background thread with proper timeouts.
+     * Download bitmap from URL with proper timeouts (called from background thread).
      */
-    public static Bitmap getBitmapFromURL(String src) {
+    private static Bitmap downloadBitmapFromURL(String src) {
         try {
             URL url = new URL(src);
             HttpURLConnection connection = (HttpURLConnection) url.openConnection();
@@ -616,68 +606,66 @@ public class BLEPrinterAdapter implements PrinterAdapter {
             connection.connect();
 
             InputStream input = connection.getInputStream();
-            Bitmap myBitmap = BitmapFactory.decodeStream(input);
+            Bitmap bitmap = BitmapFactory.decodeStream(input);
             input.close();
             connection.disconnect();
 
-            if (myBitmap == null) {
-                return null;
-            }
-
-            ByteArrayOutputStream baos = new ByteArrayOutputStream();
-            myBitmap.compress(Bitmap.CompressFormat.PNG, 100, baos);
-            return myBitmap;
+            return bitmap;
         } catch (IOException e) {
             Log.e("RNBLEPrinter", "Failed to download image: " + e.getMessage());
             return null;
         }
     }
 
+    /**
+     * Download image + print — ALL on the single printExecutor so ordering is
+     * preserved with respect to printRawData and printImageBase64 calls.
+     */
     @Override
-    public void printImageData(String imageUrl, int imageWidth, int imageHeight, Callback errorCallback) {
-        // Download image on background thread, then print
-        imageExecutor.submit(() -> {
-            final Bitmap bitmapImage = getBitmapFromURL(imageUrl);
+    public void printImageData(String imageUrl, int imageWidth, int imageHeight, Callback successCallback, Callback errorCallback) {
+        printExecutor.submit(() -> {
+            // Download on the same thread — serialized with other print ops
+            final Bitmap bitmapImage = downloadBitmapFromURL(imageUrl);
 
             if (bitmapImage == null) {
-                new Handler(Looper.getMainLooper()).post(() -> {
-                    errorCallback.invoke("PRINT_FAILED: Failed to download image from URL");
-                });
+                invokeOnMain(errorCallback, "PRINT_FAILED: Failed to download image from URL");
                 return;
             }
 
-            printBitmapInternal(bitmapImage, imageWidth, imageHeight, errorCallback);
+            printBitmapInternal(bitmapImage, imageWidth, imageHeight, successCallback, errorCallback);
         });
     }
 
     // =========================================================================
-    // Image Printing — Base64  
+    // Image Printing — Base64
     // =========================================================================
 
+    /**
+     * Print a bitmap (from base64 decode). Queued on the single printExecutor.
+     */
     @Override
-    public void printImageBase64(final Bitmap bitmapImage, int imageWidth, int imageHeight, Callback errorCallback) {
+    public void printImageBase64(final Bitmap bitmapImage, int imageWidth, int imageHeight, Callback successCallback, Callback errorCallback) {
         if (bitmapImage == null) {
             errorCallback.invoke("PRINT_FAILED: image not found");
             return;
         }
 
         printExecutor.submit(() -> {
-            printBitmapInternal(bitmapImage, imageWidth, imageHeight, errorCallback);
+            printBitmapInternal(bitmapImage, imageWidth, imageHeight, successCallback, errorCallback);
         });
     }
 
     // =========================================================================
-    // Internal bitmap printing — thread-safe
+    // Internal bitmap printing — thread-safe, called from printExecutor
     // =========================================================================
 
-    private void printBitmapInternal(Bitmap bitmapImage, int imageWidth, int imageHeight, Callback errorCallback) {
+    private void printBitmapInternal(Bitmap bitmapImage, int imageWidth, int imageHeight,
+                                     Callback successCallback, Callback errorCallback) {
         socketLock.lock();
         try {
             if (this.mBluetoothSocket == null || !this.mBluetoothSocket.isConnected()) {
-                new Handler(Looper.getMainLooper()).post(() -> {
-                    if (autoReconnect) attemptReconnect();
-                    errorCallback.invoke("NOT_CONNECTED: Printer is not connected");
-                });
+                if (autoReconnect) attemptReconnect();
+                invokeOnMain(errorCallback, "NOT_CONNECTED: Printer is not connected");
                 return;
             }
 
@@ -703,15 +691,23 @@ public class BLEPrinterAdapter implements PrinterAdapter {
             printerOutputStream.flush();
 
             Log.v(LOG_TAG, "Image printed successfully");
+            invokeOnMain(successCallback);
         } catch (IOException e) {
             Log.e(LOG_TAG, "Failed to print image: " + e.getMessage());
-            e.printStackTrace();
-            new Handler(Looper.getMainLooper()).post(() -> {
-                if (autoReconnect) attemptReconnect();
-                errorCallback.invoke("PRINT_FAILED: " + e.getMessage());
-            });
+            if (autoReconnect) attemptReconnect();
+            invokeOnMain(errorCallback, "PRINT_FAILED: " + e.getMessage());
         } finally {
             socketLock.unlock();
         }
+    }
+
+    // =========================================================================
+    // Utility — invoke callbacks on main thread
+    // =========================================================================
+
+    private static void invokeOnMain(final Callback callback, final Object... args) {
+        new Handler(Looper.getMainLooper()).post(() -> {
+            callback.invoke(args);
+        });
     }
 }
