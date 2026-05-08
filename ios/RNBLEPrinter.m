@@ -51,9 +51,23 @@ RCT_EXPORT_METHOD(getDeviceList:(RCTResponseSenderBlock)successCallback
 }
 
 RCT_EXPORT_METHOD(connectPrinter:(NSString *)inner_mac_address
+                  options:(NSDictionary *)options
                   success:(RCTResponseSenderBlock)successCallback
                   fail:(RCTResponseSenderBlock)errorCallback) {
     @try {
+        // Set connection options if provided
+        if (options != nil) {
+            _autoReconnect = [[options valueForKey:@"autoReconnect"] boolValue];
+            _maxReconnectAttempts = [[options valueForKey:@"maxReconnectAttempts"] integerValue] ?: 3;
+            _reconnectDelay = [[options valueForKey:@"reconnectDelay"] integerValue] ?: 2000;
+            _connectionTimeout = [[options valueForKey:@"timeout"] integerValue] ?: 10000;
+        } else {
+            _autoReconnect = NO;
+            _maxReconnectAttempts = 3;
+            _reconnectDelay = 2000;
+            _connectionTimeout = 10000;
+        }
+        
         __block BOOL found = NO;
         __block Printer* selectedPrinter = nil;
         [_printerArray enumerateObjectsUsingBlock: ^(id obj, NSUInteger idx, BOOL *stop){
@@ -68,6 +82,8 @@ RCT_EXPORT_METHOD(connectPrinter:(NSString *)inner_mac_address
             [[PrinterSDK defaultPrinterSDK] connectBT:selectedPrinter];
             [[NSNotificationCenter defaultCenter] postNotificationName:@"BLEPrinterConnected" object:nil];
             m_printer = selectedPrinter;
+            _lastConnectedAddress = inner_mac_address;
+            _reconnectAttempts = 0;
             successCallback(@[[NSString stringWithFormat:@"Connected to printer %@", selectedPrinter.name]]);
         } else {
             [NSException raise:@"Invalid connection" format:@"connectPrinter: Can't connect to printer %@", inner_mac_address];
@@ -241,6 +257,154 @@ RCT_EXPORT_METHOD(closeConn) {
         m_printer = nil;
     } @catch (NSException *exception) {
         NSLog(@"%@", exception.reason);
+    }
+}
+
+RCT_EXPORT_METHOD(isConnected:(RCTPromiseResolveBlock)resolve
+                  reject:(RCTPromiseRejectBlock)reject) {
+    @try {
+        BOOL connected = m_printer != nil;
+        resolve(@(connected));
+    } @catch (NSException *exception) {
+        resolve(@(NO));
+    }
+}
+
+RCT_EXPORT_METHOD(printQRCode:(NSString *)data
+                  size:(NSInteger)size
+                  resolve:(RCTPromiseResolveBlock)resolve
+                  reject:(RCTPromiseRejectBlock)reject) {
+    @try {
+        !m_printer ? [NSException raise:@"Invalid connection" format:@"printQRCode: Can't connect to printer"] : nil;
+        
+        // Generate QR code using Core Image
+        NSData *qrData = [data dataUsingEncoding:NSUTF8StringEncoding];
+        CIFilter *qrFilter = [CIFilter filterWithName:@"CIQRCodeGenerator"];
+        [qrFilter setValue:qrData forKey:@"inputMessage"];
+        [qrFilter setValue:@"M" forKey:@"inputCorrectionLevel"];
+        
+        CIImage *qrImage = qrFilter.outputImage;
+        
+        // Scale QR code to desired size
+        CGFloat scale = (CGFloat)size / qrImage.extent.size.width;
+        CIImage *scaledImage = [qrImage imageByApplyingTransform:CGAffineTransformMakeScale(scale, scale)];
+        
+        CIContext *context = [CIContext contextWithOptions:nil];
+        CGImageRef cgImage = [context createCGImage:scaledImage fromRect:scaledImage.extent];
+        UIImage *uiImage = [UIImage imageWithCGImage:cgImage];
+        CGImageRelease(cgImage);
+        
+        // Print the QR code image
+        NSString* printerWidthType = @"80";
+        NSInteger printerWidth = 576;
+        
+        [[PrinterSDK defaultPrinterSDK] setPrintWidth:printerWidth];
+        [[PrinterSDK defaultPrinterSDK] printImage:uiImage];
+        
+        resolve(nil);
+    } @catch (NSException *exception) {
+        reject(@"PRINT_ERROR", exception.reason, nil);
+    }
+}
+
+RCT_EXPORT_METHOD(printBarcode:(NSString *)data
+                  type:(NSString *)type
+                  width:(NSInteger)width
+                  height:(NSInteger)height
+                  resolve:(RCTPromiseResolveBlock)resolve
+                  reject:(RCTPromiseRejectBlock)reject) {
+    @try {
+        !m_printer ? [NSException raise:@"Invalid connection" format:@"printBarcode: Can't connect to printer"] : nil;
+        
+        // Generate barcode using Core Image
+        CIFilter *barcodeFilter = [CIFilter filterWithName:@"CICode128BarcodeGenerator"];
+        NSData *barcodeData = [data dataUsingEncoding:NSASCIIStringEncoding];
+        [barcodeFilter setValue:barcodeData forKey:@"inputMessage"];
+        
+        CIImage *barcodeImage = barcodeFilter.outputImage;
+        
+        if (barcodeImage == nil) {
+            reject(@"PRINT_ERROR", @"Failed to generate barcode", nil);
+            return;
+        }
+        
+        // Scale barcode to desired size
+        CGFloat scaleX = (CGFloat)width / barcodeImage.extent.size.width;
+        CGFloat scaleY = (CGFloat)height / barcodeImage.extent.size.height;
+        CIImage *scaledImage = [barcodeImage imageByApplyingTransform:CGAffineTransformMakeScale(scaleX, scaleY)];
+        
+        CIContext *context = [CIContext contextWithOptions:nil];
+        CGImageRef cgImage = [context createCGImage:scaledImage fromRect:scaledImage.extent];
+        UIImage *uiImage = [UIImage imageWithCGImage:cgImage];
+        CGImageRelease(cgImage);
+        
+        // Print the barcode image
+        NSInteger printerWidth = 576;
+        [[PrinterSDK defaultPrinterSDK] setPrintWidth:printerWidth];
+        [[PrinterSDK defaultPrinterSDK] printImage:uiImage];
+        
+        resolve(nil);
+    } @catch (NSException *exception) {
+        reject(@"PRINT_ERROR", exception.reason, nil);
+    }
+}
+
+RCT_EXPORT_METHOD(openCashDrawer:(RCTPromiseResolveBlock)resolve
+                  reject:(RCTPromiseRejectBlock)reject) {
+    @try {
+        !m_printer ? [NSException raise:@"Invalid connection" format:@"openCashDrawer: Can't connect to printer"] : nil;
+        
+        // Send ESC/POS command to open cash drawer
+        NSData *cashDrawerCommand = [[NSData alloc] initWithBytes:"\x1B\x70\x00\x19\xFA" length:5];
+        [[PrinterSDK defaultPrinterSDK] sendData:cashDrawerCommand];
+        
+        resolve(nil);
+    } @catch (NSException *exception) {
+        reject(@"PRINT_ERROR", exception.reason, nil);
+    }
+}
+
+RCT_EXPORT_METHOD(getBatteryLevel:(RCTPromiseResolveBlock)resolve
+                  reject:(RCTPromiseRejectBlock)reject) {
+    @try {
+        if (m_printer == nil) {
+            resolve(@(-1));
+            return;
+        }
+        
+        // Most thermal printers don't support battery level query via ESC/POS
+        // This is a generic implementation - actual command may vary by printer model
+        // For now, return -1 (unavailable)
+        
+        // If printer supports battery query, you can send ESC/POS command here
+        // Example: NSData *statusCommand = [[NSData alloc] initWithBytes:"\x10\x04\x01" length:3];
+        // [[PrinterSDK defaultPrinterSDK] sendData:statusCommand];
+        // Then read response...
+        
+        resolve(@(-1));
+    } @catch (NSException *exception) {
+        resolve(@(-1));
+    }
+}
+
+RCT_EXPORT_METHOD(getPaperStatus:(RCTPromiseResolveBlock)resolve
+                  reject:(RCTPromiseRejectBlock)reject) {
+    @try {
+        if (m_printer == nil) {
+            resolve(@"unknown");
+            return;
+        }
+        
+        // ESC/POS command to query paper sensor status
+        // This is a generic implementation - actual command may vary by printer model
+        // Most printers support this command: 0x10 0x04 0x04
+        
+        // For now, return "unknown" as actual implementation depends on printer model
+        // and would require reading response from printer
+        
+        resolve(@"unknown");
+    } @catch (NSException *exception) {
+        resolve(@"unknown");
     }
 }
 

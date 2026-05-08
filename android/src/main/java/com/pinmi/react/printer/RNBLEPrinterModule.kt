@@ -1,6 +1,8 @@
 package com.pinmi.react.printer
 
+import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.Color
 import android.util.Base64
 import com.facebook.react.bridge.Arguments
 import com.facebook.react.bridge.Promise
@@ -11,6 +13,12 @@ import com.facebook.react.bridge.ReadableMap
 import com.facebook.react.module.annotations.ReactModule
 import com.pinmi.react.printer.adapter.BLEPrinterAdapter
 import com.pinmi.react.printer.adapter.BLEPrinterDeviceId
+import com.google.zxing.BarcodeFormat
+import com.google.zxing.EncodeHintType
+import com.google.zxing.MultiFormatWriter
+import com.google.zxing.qrcode.QRCodeWriter
+import com.google.zxing.qrcode.decoder.ErrorCorrectionLevel
+import java.util.concurrent.atomic.AtomicBoolean
 
 @ReactModule(name = RNBLEPrinterModule.NAME)
 class RNBLEPrinterModule(reactContext: ReactApplicationContext) : 
@@ -42,9 +50,13 @@ class RNBLEPrinterModule(reactContext: ReactApplicationContext) :
                 return
             }
             
+            val errorOccurred = AtomicBoolean(false)
             val devices = adapter?.getDeviceList { error ->
+                errorOccurred.set(true)
                 promise.reject("DEVICE_ERROR", error?.toString() ?: "Failed to get devices")
             }
+            
+            if (errorOccurred.get()) return
             
             val deviceArray = Arguments.createArray()
             devices?.forEach { device ->
@@ -62,20 +74,32 @@ class RNBLEPrinterModule(reactContext: ReactApplicationContext) :
     }
     
     @ReactMethod
-    fun connectPrinter(address: String, promise: Promise) {
+    fun connectPrinter(address: String, options: ReadableMap?, promise: Promise) {
         try {
             if (adapter == null) {
                 promise.reject("NOT_INITIALIZED", "Must call init first")
                 return
             }
             
+            // Set connection options if provided
+            if (options != null) {
+                val autoReconnect = if (options.hasKey("autoReconnect")) options.getBoolean("autoReconnect") else false
+                val maxAttempts = if (options.hasKey("maxReconnectAttempts")) options.getInt("maxReconnectAttempts") else 3
+                val reconnectDelay = if (options.hasKey("reconnectDelay")) options.getInt("reconnectDelay") else 2000
+                val timeout = if (options.hasKey("timeout")) options.getInt("timeout") else 10000
+                
+                adapter?.setConnectionOptions(autoReconnect, maxAttempts, reconnectDelay, timeout)
+            }
+            
+            // selectDevice runs the connection on a background thread internally.
+            // The callbacks fire when the connection completes or fails.
             adapter?.selectDevice(
                 BLEPrinterDeviceId.valueOf(address),
                 { promise.resolve("Connected to printer") },
-                { error -> promise.reject("CONNECTION_ERROR", error?.toString() ?: "Connection failed") }
+                { error -> promise.reject("CONNECTION_FAILED", error?.toString() ?: "Connection failed") }
             )
         } catch (e: Exception) {
-            promise.reject("CONNECTION_ERROR", e.message, e)
+            promise.reject("CONNECTION_FAILED", e.message, e)
         }
     }
     
@@ -92,6 +116,14 @@ class RNBLEPrinterModule(reactContext: ReactApplicationContext) :
         }
     }
     
+    /**
+     * Print raw base64-encoded data.
+     * The promise is resolved/rejected ONLY when the actual Bluetooth write
+     * completes or fails — NOT immediately. This guarantees that:
+     *   await BLEPrinter.printImage(url);
+     *   await BLEPrinter.printText("hello");
+     * will always print the image first, then the text.
+     */
     @ReactMethod
     fun printRawData(data: String, options: ReadableMap?, promise: Promise) {
         try {
@@ -100,15 +132,21 @@ class RNBLEPrinterModule(reactContext: ReactApplicationContext) :
                 return
             }
             
-            adapter?.printRawData(data) { error ->
-                promise.reject("PRINT_ERROR", error?.toString() ?: "Print failed")
-            }
-            promise.resolve(null)
+            adapter?.printRawData(
+                data,
+                { promise.resolve(null) },           // success — called after write completes
+                { error -> promise.reject("PRINT_FAILED", error?.toString() ?: "Print failed") }
+            )
         } catch (e: Exception) {
-            promise.reject("PRINT_ERROR", e.message, e)
+            promise.reject("PRINT_FAILED", e.message, e)
         }
     }
     
+    /**
+     * Print image from URL.
+     * Image download + bitmap write all run on the single print executor,
+     * so ordering is preserved. Promise resolves after print finishes.
+     */
     @ReactMethod
     fun printImageData(url: String, options: ReadableMap?, promise: Promise) {
         try {
@@ -120,12 +158,13 @@ class RNBLEPrinterModule(reactContext: ReactApplicationContext) :
             val imageWidth = options?.getInt("imageWidth") ?: 0
             val imageHeight = options?.getInt("imageHeight") ?: 0
             
-            adapter?.printImageData(url, imageWidth, imageHeight) { error ->
-                promise.reject("PRINT_ERROR", error?.toString() ?: "Print failed")
-            }
-            promise.resolve(null)
+            adapter?.printImageData(
+                url, imageWidth, imageHeight,
+                { promise.resolve(null) },
+                { error -> promise.reject("PRINT_FAILED", error?.toString() ?: "Print failed") }
+            )
         } catch (e: Exception) {
-            promise.reject("PRINT_ERROR", e.message, e)
+            promise.reject("PRINT_FAILED", e.message, e)
         }
     }
     
@@ -140,15 +179,184 @@ class RNBLEPrinterModule(reactContext: ReactApplicationContext) :
             val decodedBytes = Base64.decode(base64, Base64.DEFAULT)
             val bitmap = BitmapFactory.decodeByteArray(decodedBytes, 0, decodedBytes.size)
             
+            if (bitmap == null) {
+                promise.reject("PRINT_FAILED", "Failed to decode base64 image")
+                return
+            }
+            
             val imageWidth = options?.getInt("imageWidth") ?: 0
             val imageHeight = options?.getInt("imageHeight") ?: 0
             
-            adapter?.printImageBase64(bitmap, imageWidth, imageHeight) { error ->
-                promise.reject("PRINT_ERROR", error?.toString() ?: "Print failed")
-            }
-            promise.resolve(null)
+            adapter?.printImageBase64(
+                bitmap, imageWidth, imageHeight,
+                { promise.resolve(null) },
+                { error -> promise.reject("PRINT_FAILED", error?.toString() ?: "Print failed") }
+            )
         } catch (e: Exception) {
-            promise.reject("PRINT_ERROR", e.message, e)
+            promise.reject("PRINT_FAILED", e.message, e)
+        }
+    }
+    
+    @ReactMethod
+    fun isConnected(promise: Promise) {
+        try {
+            val connected = adapter?.isConnected() ?: false
+            promise.resolve(connected)
+        } catch (e: Exception) {
+            promise.resolve(false)
+        }
+    }
+    
+    @ReactMethod
+    fun printQRCode(data: String, size: Int, promise: Promise) {
+        try {
+            if (adapter == null) {
+                promise.reject("NOT_INITIALIZED", "Printer not initialized")
+                return
+            }
+            
+            val qrSize = if (size > 0) size else 200
+            val bitmap = generateQRCode(data, qrSize)
+            
+            if (bitmap != null) {
+                adapter?.printImageBase64(
+                    bitmap, qrSize, qrSize,
+                    { promise.resolve(null) },
+                    { error -> promise.reject("PRINT_FAILED", error?.toString() ?: "QR print failed") }
+                )
+            } else {
+                promise.reject("PRINT_FAILED", "Failed to generate QR code")
+            }
+        } catch (e: Exception) {
+            promise.reject("PRINT_FAILED", e.message, e)
+        }
+    }
+    
+    @ReactMethod
+    fun printBarcode(data: String, type: String, width: Int, height: Int, promise: Promise) {
+        try {
+            if (adapter == null) {
+                promise.reject("NOT_INITIALIZED", "Printer not initialized")
+                return
+            }
+            
+            val barcodeWidth = if (width > 0) width else 300
+            val barcodeHeight = if (height > 0) height else 80
+            val barcodeFormat = when (type.uppercase()) {
+                "CODE128" -> BarcodeFormat.CODE_128
+                "CODE39" -> BarcodeFormat.CODE_39
+                "EAN13" -> BarcodeFormat.EAN_13
+                "EAN8" -> BarcodeFormat.EAN_8
+                "UPC_A" -> BarcodeFormat.UPC_A
+                "UPC_E" -> BarcodeFormat.UPC_E
+                "ITF" -> BarcodeFormat.ITF
+                "CODABAR" -> BarcodeFormat.CODABAR
+                else -> BarcodeFormat.CODE_128
+            }
+            
+            val bitmap = generateBarcode(data, barcodeFormat, barcodeWidth, barcodeHeight)
+            
+            if (bitmap != null) {
+                adapter?.printImageBase64(
+                    bitmap, barcodeWidth, barcodeHeight,
+                    { promise.resolve(null) },
+                    { error -> promise.reject("PRINT_FAILED", error?.toString() ?: "Barcode print failed") }
+                )
+            } else {
+                promise.reject("PRINT_FAILED", "Failed to generate barcode")
+            }
+        } catch (e: Exception) {
+            promise.reject("PRINT_FAILED", e.message, e)
+        }
+    }
+    
+    @ReactMethod
+    fun openCashDrawer(promise: Promise) {
+        try {
+            if (adapter == null) {
+                promise.reject("NOT_INITIALIZED", "Printer not initialized")
+                return
+            }
+            
+            // ESC/POS command to open cash drawer (pulse to pin 2)
+            val cashDrawerCommand = byteArrayOf(0x1B, 0x70, 0x00, 0x19, 0xFA.toByte())
+            val base64Command = Base64.encodeToString(cashDrawerCommand, Base64.DEFAULT)
+            
+            adapter?.printRawData(
+                base64Command,
+                { promise.resolve(null) },
+                { error -> promise.reject("PRINT_FAILED", error?.toString() ?: "Cash drawer failed") }
+            )
+        } catch (e: Exception) {
+            promise.reject("PRINT_FAILED", e.message, e)
+        }
+    }
+    
+    @ReactMethod
+    fun getBatteryLevel(promise: Promise) {
+        try {
+            if (adapter == null) {
+                promise.resolve(-1)
+                return
+            }
+            
+            val batteryLevel = adapter?.getBatteryLevel() ?: -1
+            promise.resolve(batteryLevel)
+        } catch (e: Exception) {
+            promise.resolve(-1)
+        }
+    }
+    
+    @ReactMethod
+    fun getPaperStatus(promise: Promise) {
+        try {
+            if (adapter == null) {
+                promise.resolve("unknown")
+                return
+            }
+            
+            val paperStatus = adapter?.getPaperStatus() ?: "unknown"
+            promise.resolve(paperStatus)
+        } catch (e: Exception) {
+            promise.resolve("unknown")
+        }
+    }
+    
+    private fun generateQRCode(data: String, size: Int): Bitmap? {
+        return try {
+            val hints = hashMapOf<EncodeHintType, Any>(
+                EncodeHintType.ERROR_CORRECTION to ErrorCorrectionLevel.M,
+                EncodeHintType.MARGIN to 1
+            )
+            val writer = QRCodeWriter()
+            val bitMatrix = writer.encode(data, BarcodeFormat.QR_CODE, size, size, hints)
+            
+            val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.RGB_565)
+            for (x in 0 until size) {
+                for (y in 0 until size) {
+                    bitmap.setPixel(x, y, if (bitMatrix[x, y]) Color.BLACK else Color.WHITE)
+                }
+            }
+            bitmap
+        } catch (e: Exception) {
+            null
+        }
+    }
+    
+    private fun generateBarcode(data: String, format: BarcodeFormat, width: Int, height: Int): Bitmap? {
+        return try {
+            val writer = MultiFormatWriter()
+            val bitMatrix = writer.encode(data, format, width, height)
+            
+            val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.RGB_565)
+            for (x in 0 until width) {
+                for (y in 0 until height) {
+                    bitmap.setPixel(x, y, if (bitMatrix[x, y]) Color.BLACK else Color.WHITE)
+                }
+            }
+            bitmap
+        } catch (e: Exception) {
+            null
         }
     }
     
